@@ -11,7 +11,8 @@
 
 `rocm-ocr` is strictly a domain-agnostic inference service. It has no knowledge of downstream consumers (such as Paperless-ngx, document management systems, or archivers).
 
-### Core Responsibilities:
+### Core Responsibilities
+
 1. Accept PDF files or image streams via HTTP.
 2. Render pages (for PDFs) and run PP-OCRv4 detection, direction classification, and text recognition on the AMD GPU.
 3. Return structured JSON with token/line bounding boxes, recognized text, confidence scores, and execution metadata (active execution provider, inference duration).
@@ -25,16 +26,20 @@
 The service exposes HTTP endpoints via FastAPI.
 
 ### 2.1 `POST /ocr/v1/setup`
+
 Dynamically adjusts runtime parameters such as maximum concurrency.
 
 - **Initial State:** `concurrency = 1` on service startup.
 - **Request:**
+
   ```json
   {
     "concurrency": 4
   }
   ```
+
 - **Response (HTTP 200):**
+
   ```json
   {
     "status": "updated",
@@ -42,15 +47,18 @@ Dynamically adjusts runtime parameters such as maximum concurrency.
     "active_tasks": 0
   }
   ```
+
 - **Semantics:** Concurrency is managed via an `asyncio.Semaphore` (or token pool). Changing this value takes effect immediately for incoming requests.
 
 ### 2.2 `POST /ocr/v1/predict`
+
 Executes OCR inference on an uploaded document or image.
 
 - **Request:**
   - Content-Type: `multipart/form-data`
   - Body: `file` (Binary content of PDF, PNG, JPEG, TIFF, or WebP)
 - **Response (HTTP 200 - Success):**
+
   ```json
   {
     "execution_provider": "ROCMExecutionProvider",
@@ -71,10 +79,12 @@ Executes OCR inference on an uploaded document or image.
     ]
   }
   ```
+
 - **Bounding Box Convention:**
   `[x0, y0, x1, y1]` in points (for PDFs) or pixels (for images), where `(x0, y0)` is top-left and `(x1, y1)` is bottom-right.
 - **Response (HTTP 503 / 500 - Hardware/Driver Error):**
   Transparent error reporting without silent CPU fallback:
+
   ```json
   {
     "detail": "ROCm GPU inference failed",
@@ -84,6 +94,7 @@ Executes OCR inference on an uploaded document or image.
   ```
 
 ### 2.3 `GET /healthz` & `GET /readyz`
+
 - `GET /healthz`: Returns HTTP 200 as soon as the HTTP server is listening.
 - `GET /readyz`: Verifies that ONNX Runtime and the configured Execution Provider (`ROCMExecutionProvider` or fallback) are loaded and capable of executing inference.
 
@@ -119,4 +130,3 @@ Executes OCR inference on an uploaded document or image.
   - Type annotations on all public functions.
   - Docstrings explaining parameters and return values.
 - **Testing:** Unit tests with mocks for HTTP endpoints, concurrency limiter, and OCR engine.
-

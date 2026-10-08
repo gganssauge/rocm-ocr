@@ -34,4 +34,3 @@ coverage.xml
 # Downloaded models / scratch artifacts
 models/
 *.onnx
-

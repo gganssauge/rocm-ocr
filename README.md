@@ -17,4 +17,3 @@ Standalone, high-performance OCR inference microservice accelerated by AMD ROCm 
 uv sync --all-groups
 uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000
 ```
-
