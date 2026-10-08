@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Linters & Tooling
+.ruff_cache/
+.mypy_cache/
+
+# Environment & IDE
+.env
+.env.local
+.vscode/
+.idea/
+.scratch/
+*.swp
+*.swo
+
+# Downloaded models / scratch artifacts
+models/
+*.onnx
+
