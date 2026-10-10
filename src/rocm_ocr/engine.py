@@ -1,5 +1,5 @@
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -17,7 +17,7 @@ ROCM_PROVIDER = "ROCMExecutionProvider"
 
 
 @contextmanager
-def _silence_c_stderr() -> Iterator[None]:
+def _silence_c_stderr() -> Generator[None, None, None]:
     """Redirect C-level stderr (fd 2) to devnull to suppress MIOpen search logs."""
     try:
         null_fd = os.open(os.devnull, os.O_WRONLY)
@@ -128,6 +128,11 @@ def _resolve_model_kwargs(
             keys = _find_candidate_file(check_dir, ["latin_dict.txt", "dict.txt"])
             if keys:
                 kwargs["rec_keys_path"] = keys
+
+    if "rec_keys_path" not in kwargs:
+        bundled_dict = Path(__file__).parent / "resources" / "latin_dict.txt"
+        if bundled_dict.is_file():
+            kwargs["rec_keys_path"] = str(bundled_dict)
     return kwargs
 
 
