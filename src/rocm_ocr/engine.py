@@ -29,21 +29,29 @@ class GpuInferenceError(Exception):
 
 def _patch_rapidocr_rocm() -> None:
     """Ensure OrtInferSession prioritizes ROCMExecutionProvider when available."""
+    original_init = OrtInferSession.__init__
     original_get_ep_list = OrtInferSession._get_ep_list
+
+    def _rocm_init(self: OrtInferSession, config: dict[str, Any]) -> None:
+        setattr(self, "_model_path", str(config.get("model_path", "")))  # noqa: B010
+        original_init(self, config)
 
     def _rocm_get_ep_list(self: OrtInferSession) -> list[tuple[str, dict[str, Any]]]:
         ep_list = original_get_ep_list(self)
         available = ort.get_available_providers()
-        if ROCM_PROVIDER in available:
+        model_str = getattr(self, "_model_path", "")
+        is_legacy_rec = "latin" in model_str or "PP-OCRv3_rec" in model_str
+        if ROCM_PROVIDER in available and not is_legacy_rec:
             rocm_opts = {
                 "device_id": 0,
                 "arena_extend_strategy": "kNextPowerOfTwo",
-                "miopen_conv_exhaustive_search": True,
+                "miopen_conv_exhaustive_search": False,
                 "do_copy_in_default_stream": True,
             }
             ep_list.insert(0, (ROCM_PROVIDER, rocm_opts))
         return ep_list
 
+    OrtInferSession.__init__ = _rocm_init
     OrtInferSession._get_ep_list = _rocm_get_ep_list
 
 
@@ -175,5 +183,6 @@ class OcrEngine:
         for item in raw_results:
             quad, text, score = item[0], str(item[1]), float(item[2])
             bbox = _convert_quad_to_bbox(quad, page.scale)
-            boxes.append(BoundingBox(text=text, bbox=bbox, confidence=round(score, 4)))
+            conf = max(0.0, min(1.0, round(score, 4)))
+            boxes.append(BoundingBox(text=text, bbox=bbox, confidence=conf))
         return boxes

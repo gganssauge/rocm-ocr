@@ -27,6 +27,10 @@ class Settings(BaseSettings):
         """Set required environment overrides for ROCm RDNA3 consumer GPUs."""
         if "HSA_OVERRIDE_GFX_VERSION" not in os.environ:
             os.environ["HSA_OVERRIDE_GFX_VERSION"] = self.hsa_override_gfx_version
+        if "MIOPEN_DEBUG_CONV_WINOGRAD" not in os.environ:
+            os.environ["MIOPEN_DEBUG_CONV_WINOGRAD"] = "0"
+        if "MIOPEN_FIND_MODE" not in os.environ:
+            os.environ["MIOPEN_FIND_MODE"] = "2"
 
 
 settings = Settings()
