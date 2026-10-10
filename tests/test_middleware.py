@@ -100,3 +100,23 @@ def test_health_check_filter() -> None:
         None,
     )
     assert flt.filter(rec_predict_200) is True
+
+
+def test_correlation_access_formatter() -> None:
+    """Verify that CorrelationAccessFormatter renders correlation_id in access log."""
+    from rocm_ocr.logging import CorrelationAccessFormatter
+
+    formatter = CorrelationAccessFormatter(use_colors=False)
+    rec = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        "main.py",
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:5000", "POST", "/ocr/v1/predict", "1.1", 200),
+        None,
+    )
+    rec.correlation_id = "test-cid-abc"
+    result = formatter.format(rec)
+    assert "[test-cid-abc]" in result
+    assert "POST /ocr/v1/predict HTTP/1.1" in result

@@ -1,5 +1,6 @@
-"""OCR inference engine wrapping RapidOCR and ONNX Runtime with ROCm support."""
-
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,23 @@ from rocm_ocr.models import BoundingBox
 from rocm_ocr.parser import RenderedPage
 
 ROCM_PROVIDER = "ROCMExecutionProvider"
+
+
+@contextmanager
+def _silence_c_stderr() -> Iterator[None]:
+    """Redirect C-level stderr (fd 2) to devnull to suppress MIOpen search logs."""
+    try:
+        null_fd = os.open(os.devnull, os.O_WRONLY)
+        saved_stderr = os.dup(2)
+        try:
+            os.dup2(null_fd, 2)
+            yield
+        finally:
+            os.dup2(saved_stderr, 2)
+            os.close(saved_stderr)
+            os.close(null_fd)
+    except OSError:
+        yield
 
 
 class GpuInferenceError(Exception):
@@ -160,7 +178,8 @@ class OcrEngine:
             return True
         try:
             dummy_arr = np.ones((64, 64, 3), dtype=np.uint8) * 255
-            self._engine(dummy_arr)
+            with _silence_c_stderr():
+                self._engine(dummy_arr)
             self._is_ready = True
             return True
         except Exception:
@@ -170,7 +189,8 @@ class OcrEngine:
         """Execute OCR detection, orientation classification, and text recognition."""
         img_np = np.array(page.image)
         try:
-            raw_results, _ = self._engine(img_np)
+            with _silence_c_stderr():
+                raw_results, _ = self._engine(img_np)
         except Exception as exc:
             if self._active_provider == ROCM_PROVIDER or "HIP" in str(exc):
                 raise GpuInferenceError(
