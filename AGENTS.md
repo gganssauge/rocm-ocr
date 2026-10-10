@@ -16,10 +16,11 @@ Standalone, high-performance OCR inference microservice accelerated by AMD ROCm 
   - Cognitive complexity $\le 15$ per function/method (SonarCloud standard).
   - Maximum function length: 30 logical lines. Extract focused private helpers with type annotations.
   - Fail-fast & transparency: Hardware/GPU errors must be reported transparently via HTTP 503; no silent CPU fallbacks.
-- **Quality Gates:** Pre-commit hooks (`prek`) enforce `ruff format`, `ruff check`, and `markdownlint-cli2`.
+- **Quality Gates:** Pre-commit hooks (`prek`) enforce `ruff format`, `ruff check`, `markdownlint-cli2`, and `ty check`.
 
 ## Key Commands
 
+- Run type checking: `ty check`
 - Run single test: `uv run pytest tests/test_<module>.py -k test_<func>`
 - Run all tests: `uv run pytest`
 - Local dev server: `uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000 --reload`

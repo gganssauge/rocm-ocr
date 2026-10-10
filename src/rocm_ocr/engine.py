@@ -72,7 +72,7 @@ def _resolve_model_kwargs(model_dir: Path) -> dict[str, str]:
     return kwargs
 
 
-def _convert_quad_to_bbox(quad: list[list[float]], scale: float) -> list[float]:
+def _convert_quad_to_bbox(quad: Any, scale: float) -> list[float]:
     """Convert four-point polygon to [x0, y0, x1, y1] normalized to page scale."""
     x_coords = [pt[0] for pt in quad]
     y_coords = [pt[1] for pt in quad]
