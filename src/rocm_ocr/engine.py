@@ -139,6 +139,7 @@ class OcrEngine:
         )
         self._engine = RapidOCR(**model_kwargs)
         self._active_provider = self._detect_active_provider()
+        self._is_ready = False
 
     def _detect_active_provider(self) -> str:
         """Detect the currently loaded execution provider from the active session."""
@@ -155,9 +156,12 @@ class OcrEngine:
 
     def is_ready(self) -> bool:
         """Verify that the engine and execution provider can perform inference."""
+        if self._is_ready:
+            return True
         try:
             dummy_arr = np.ones((64, 64, 3), dtype=np.uint8) * 255
             self._engine(dummy_arr)
+            self._is_ready = True
             return True
         except Exception:
             return False
