@@ -2,7 +2,7 @@
 
 import io
 
-import fitz
+import pymupdf
 import pytest
 from PIL import Image
 
@@ -19,7 +19,7 @@ def _create_sample_image(img_format: str) -> bytes:
 
 def _create_sample_pdf() -> bytes:
     """Generate a 2-page sample PDF in memory."""
-    doc = fitz.open()
+    doc = pymupdf.open()
     page1 = doc.new_page(width=300, height=400)
     page1.insert_text((50, 50), "Page One")
     page2 = doc.new_page(width=300, height=400)

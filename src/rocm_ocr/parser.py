@@ -3,7 +3,7 @@
 import io
 from dataclasses import dataclass
 
-import fitz  # PyMuPDF
+import pymupdf
 from PIL import Image, UnidentifiedImageError
 
 SUPPORTED_IMAGE_FORMATS = {"PNG", "JPEG", "TIFF", "WEBP"}
@@ -28,8 +28,8 @@ class RenderedPage:
 def _parse_pdf_pages(file_bytes: bytes) -> list[RenderedPage]:
     """Render each PDF page to an RGB image with scale tracking."""
     pages: list[RenderedPage] = []
-    matrix = fitz.Matrix(PDF_RENDER_ZOOM, PDF_RENDER_ZOOM)
-    with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+    matrix = pymupdf.Matrix(PDF_RENDER_ZOOM, PDF_RENDER_ZOOM)
+    with pymupdf.open(stream=file_bytes, filetype="pdf") as doc:
         for page_idx in range(len(doc)):
             page = doc[page_idx]
             pix = page.get_pixmap(matrix=matrix, alpha=False)
