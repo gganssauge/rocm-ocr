@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ocr
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+
+images:
+  - name: rocm-ocr
+    newName: rocm-ocr
+    newTag: local
