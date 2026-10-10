@@ -129,7 +129,7 @@ def _resolve_model_kwargs(
             if keys:
                 kwargs["rec_keys_path"] = keys
 
-    if "rec_keys_path" not in kwargs:
+    if "rec_keys_path" not in kwargs and "rec_model_path" in kwargs:
         bundled_dict = Path(__file__).parent / "resources" / "latin_dict.txt"
         if bundled_dict.is_file():
             kwargs["rec_keys_path"] = str(bundled_dict)
