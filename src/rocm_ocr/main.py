@@ -1,7 +1,7 @@
 """FastAPI application for the ROCm OCR microservice."""
 
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -26,7 +26,7 @@ from rocm_ocr.parser import UnsupportedFormatError, parse_document
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Initialize application state, concurrency limiter, and OCR engine."""
     setup_logging()
     app.state.limiter = DynamicConcurrencyLimiter(settings.ocr_concurrency)

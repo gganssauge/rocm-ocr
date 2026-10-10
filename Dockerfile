@@ -9,6 +9,7 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -24,6 +25,15 @@ RUN uv sync --frozen --no-dev --no-install-project --python 3.12
 
 COPY src ./src
 RUN uv sync --frozen --no-dev --python 3.12
+
+# Download Latin recognition model and prepare self-contained /models directory
+RUN mkdir -p /models && \
+    curl -fL -o /models/latin_PP-OCRv3_rec_infer.onnx \
+      "https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3/resolve/main/latin_PP-OCRv3_rec_infer.onnx" && \
+    cp src/rocm_ocr/resources/latin_dict.txt /models/latin_dict.txt && \
+    VENV_MODELS=$(find /app/.venv -type d -name "models" | head -n 1) && \
+    cp "$VENV_MODELS/ch_PP-OCRv4_det_infer.onnx" /models/ch_PP-OCRv4_det_infer.onnx && \
+    cp "$VENV_MODELS/ch_ppocr_mobile_v2.0_cls_infer.onnx" /models/ch_ppocr_mobile_v2.0_cls_infer.onnx
 
 # Generate stub libroctracer64.so.4
 RUN mkdir -p /app/lib/rocm && \
@@ -60,7 +70,7 @@ COPY --from=builder /opt/python /opt/python
 COPY --from=builder --chown=ubuntu:ubuntu /app/.venv /app/.venv
 COPY --from=builder /app/lib/rocm/libroctracer64.so.4 /app/lib/rocm/libroctracer64.so.4
 COPY --chown=ubuntu:ubuntu src /app/src
-COPY --chown=ubuntu:ubuntu models /models
+COPY --from=builder --chown=ubuntu:ubuntu /models /models
 
 WORKDIR /app
 
