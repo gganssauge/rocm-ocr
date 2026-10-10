@@ -83,11 +83,38 @@ async def test_e2e_predict_german_invoice(e2e_client: AsyncClient) -> None:
     all_text = " ".join(b["text"] for b in first_page["boxes"])
 
     # Verify extraction of German special characters and key fields
-    assert "Musterstraße" in all_text
-    assert "Fälligkeitsdatum" in all_text
     assert "München" in all_text
-    assert "Geschäftsführer" in all_text
-    assert "Rechnung Nr. 2026-0815" in all_text
+    assert "Fälligkeitsdatum" in all_text
+    assert "Umsatzsteuer" in all_text
+    assert "RE-2026-0042" in all_text
+    assert "Kurfürstendamm" in all_text
+
+
+BTD_PDF_PATH = Path("tests/fixtures/bundestag_drucksache_sample.pdf")
+
+
+@pytest.mark.asyncio
+async def test_e2e_predict_bundestag_drucksache(e2e_client: AsyncClient) -> None:
+    """Verify end-to-end OCR on official Bundestag publication."""
+    assert BTD_PDF_PATH.is_file(), f"Missing fixture {BTD_PDF_PATH}"
+    pdf_bytes = BTD_PDF_PATH.read_bytes()
+
+    files = {"file": (BTD_PDF_PATH.name, pdf_bytes, "application/pdf")}
+    response = await e2e_client.post("/ocr/v1/predict", files=files)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["inference_time_ms"] > 0
+    assert len(data["pages"]) == 1
+
+    first_page = data["pages"][0]
+    all_text = " ".join(b["text"] for b in first_page["boxes"])
+
+    # Verify official header and key contents from Bundestag publication
+    assert "Deutscher Bundestag" in all_text
+    assert "Drucksache 20/100" in all_text
+    assert "20. Wahlperiode" in all_text
+    assert "Existenzminimum" in all_text
 
 
 @pytest.mark.asyncio
