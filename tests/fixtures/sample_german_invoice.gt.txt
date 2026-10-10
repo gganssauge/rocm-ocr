@@ -1,0 +1,59 @@
+NOVATRONIX
+Cloud & AI Engineering Solutions GmbH
+Novatronix GmbH · Kurfürstendamm 182 · 10707 Berlin
+Münchner Technologie AG
+Abteilung IT-Infrastruktur
+Frau Dr. Stefanie Krüger
+Leopoldstraße 140
+80804 München
+Ihre Kundennummer:
+KD-98745-DE
+Unser Zeichen:
+ROCM-2026/08
+Ansprechpartner:
+Maximilian Weiß
+Telefon:
++49 30 987654-20
+Rechnungsdatum:
+10. Oktober 2026
+Fälligkeitsdatum:
+24. Oktober 2026
+Rechnung Nr. RE-2026-0042
+Sehr geehrte Frau Dr. Krüger,
+vielen Dank für das Vertrauen. Wir stellen Ihnen folgende Posten in Rechnung:
+Pos.
+Bezeichnung / Leistungsbeschreibung
+Menge
+Einzelpreis
+Gesamtbetrag
+01
+AMD ROCm GPU Inferenz-Cluster Setup & Tuning
+1
+1.850,00 ·
+1.850,00 ·
+02
+Qualitätssicherung & Optimierung deutscher OCR-Modelle
+2
+450,00 ·
+900,00 ·
+Zwischensumme netto:
+2.750,00 ·
+Zuzüglich 19% Umsatzsteuer:
+522,50 ·
+Gesamtbetrag brutto:
+3.272,50 ·
+Bitte überweisen Sie den Rechnungsbetrag innerhalb von 14 Tagen auf das unten genannte Bankkonto.
+Vielen Dank für die angenehme Zusammenarbeit!
+Mit freundlichen Grüßen,
+Novatronix GmbH Geschäftsleitung
+Beleg-Code: NVX-2026-DE-8921-QR
+Novatronix GmbH
+Kurfürstendamm 182, 10707 Berlin
+Amtsgericht Charlottenburg HRB 998877 B
+USt-IdNr.: DE 312 456 789
+Geschäftsführung:
+Dr. Florian Schultheiß
+Dipl.-Ing. Beatrix Vögele
+Bankverbindung: Deutsche Bank Berlin
+IBAN: DE27 1007 0000 0123 4567 89
+BIC: DEUTDEDBBER

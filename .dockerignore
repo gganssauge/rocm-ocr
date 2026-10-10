@@ -1,0 +1,11 @@
+.git
+.venv
+.scratch
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+__pycache__
+*.py[cod]
+*Aktivierungscode*
+lib/rocm

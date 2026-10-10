@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rocm-ocr
+  namespace: ocr
+  labels:
+    app.kubernetes.io/name: rocm-ocr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rocm-ocr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rocm-ocr
+    spec:
+      securityContext:
+        supplementalGroups:
+          - 44   # video
+          - 109  # render
+      containers:
+        - name: ocr
+          securityContext:
+            privileged: true
+          image: rocm-ocr:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: HSA_OVERRIDE_GFX_VERSION
+              value: "11.0.0"
+            - name: MIOPEN_DEBUG_CONV_WINOGRAD
+              value: "0"
+            - name: MIOPEN_FIND_MODE
+              value: "2"
+            - name: MIOPEN_LOG_LEVEL
+              value: "0"
+            - name: OCR_MODEL_DIR
+              value: "/models"
+            - name: OCR_CONCURRENCY
+              value: "1"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: 4000m
+              memory: 6Gi
+          volumeMounts:
+            - name: dev-kfd
+              mountPath: /dev/kfd
+            - name: dev-dri
+              mountPath: /dev/dri
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+      volumes:
+        - name: dev-kfd
+          hostPath:
+            path: /dev/kfd
+            type: CharDevice
+        - name: dev-dri
+          hostPath:
+            path: /dev/dri
+            type: Directory

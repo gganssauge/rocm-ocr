@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ocr
+  labels:
+    app.kubernetes.io/name: rocm-ocr
+    app.kubernetes.io/part-of: ai-services

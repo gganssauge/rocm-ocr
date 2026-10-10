@@ -34,4 +34,7 @@ coverage.xml
 # Downloaded models / scratch artifacts
 models/
 *.onnx
+lib/rocm/
 
+# Local test documents (containing personal/sensitive data)
+*Aktivierungscode*
