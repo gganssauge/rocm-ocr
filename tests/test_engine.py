@@ -31,14 +31,17 @@ def test_resolve_model_kwargs_empty_dir(tmp_path: Path) -> None:
 
 
 def test_resolve_model_kwargs_custom_models(tmp_path: Path) -> None:
-    """Test resolving model kwargs when custom ONNX models exist."""
+    """Test resolving model kwargs when custom ONNX models and dict exist."""
     (tmp_path / "det.onnx").touch()
     (tmp_path / "cls.onnx").touch()
-    (tmp_path / "rec.onnx").touch()
+    (tmp_path / "latin_PP-OCRv3_rec_infer.onnx").touch()
+    (tmp_path / "latin_dict.txt").touch()
     kwargs = _resolve_model_kwargs(tmp_path)
     assert "det_model_path" in kwargs
     assert "cls_model_path" in kwargs
     assert "rec_model_path" in kwargs
+    assert "rec_keys_path" in kwargs
+    assert "latin_dict.txt" in kwargs["rec_keys_path"]
 
 
 def test_ocr_engine_is_ready() -> None:

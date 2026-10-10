@@ -61,21 +61,47 @@ async def test_e2e_predict_vodafone_pdf(e2e_client: AsyncClient) -> None:
         assert 0.0 <= box["confidence"] <= 1.0
 
 
-@pytest.mark.skipif(
-    not PDF_FIXTURE_PATH.is_file(),
-    reason="Vodafone test fixture PDF not present",
-)
+GERMAN_INVOICE_PDF = Path("tests/fixtures/sample_german_invoice.pdf")
+GERMAN_INVOICE_GT = Path("tests/fixtures/sample_german_invoice.gt.txt")
+
+
+@pytest.mark.asyncio
+async def test_e2e_predict_german_invoice(e2e_client: AsyncClient) -> None:
+    """Verify end-to-end OCR and German umlaut extraction on neutral invoice."""
+    assert GERMAN_INVOICE_PDF.is_file(), f"Missing fixture {GERMAN_INVOICE_PDF}"
+    pdf_bytes = GERMAN_INVOICE_PDF.read_bytes()
+
+    files = {"file": (GERMAN_INVOICE_PDF.name, pdf_bytes, "application/pdf")}
+    response = await e2e_client.post("/ocr/v1/predict", files=files)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["inference_time_ms"] > 0
+    assert len(data["pages"]) == 1
+
+    first_page = data["pages"][0]
+    all_text = " ".join(b["text"] for b in first_page["boxes"])
+
+    # Verify extraction of German special characters and key fields
+    assert "Musterstraße" in all_text
+    assert "Fälligkeitsdatum" in all_text
+    assert "München" in all_text
+    assert "Geschäftsführer" in all_text
+    assert "Rechnung Nr. 2026-0815" in all_text
+
+
 @pytest.mark.asyncio
 async def test_e2e_setup_and_concurrent_predict(e2e_client: AsyncClient) -> None:
     """Verify runtime concurrency adjustment and concurrent document inference."""
-    pdf_bytes = PDF_FIXTURE_PATH.read_bytes()
+    assert GERMAN_INVOICE_PDF.is_file()
+    pdf_bytes = GERMAN_INVOICE_PDF.read_bytes()
 
     setup_resp = await e2e_client.post("/ocr/v1/setup", json={"concurrency": 2})
     assert setup_resp.status_code == 200
     assert setup_resp.json()["concurrency"] == 2
 
     async def _send_predict() -> int:
-        files = {"file": (PDF_FIXTURE_PATH.name, pdf_bytes, "application/pdf")}
+        files = {"file": (GERMAN_INVOICE_PDF.name, pdf_bytes, "application/pdf")}
         resp = await e2e_client.post("/ocr/v1/predict", files=files)
         return resp.status_code
 

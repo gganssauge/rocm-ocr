@@ -12,6 +12,8 @@ def test_settings_default_values() -> None:
     assert cfg.hsa_override_gfx_version == "11.0.0"
     assert cfg.ocr_concurrency == 1
     assert cfg.ocr_model_dir == Path("/models")
+    assert cfg.ocr_rec_model_path is None
+    assert cfg.ocr_rec_keys_path is None
     assert cfg.log_level == "INFO"
     assert cfg.port == 8000
 

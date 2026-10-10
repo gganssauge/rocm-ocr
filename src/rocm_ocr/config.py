@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     hsa_override_gfx_version: str = "11.0.0"
     ocr_concurrency: int = 1
     ocr_model_dir: Path = Path("/models")
+    ocr_rec_model_path: Path | None = None
+    ocr_rec_keys_path: Path | None = None
     log_level: str = "INFO"
     port: int = 8000
 

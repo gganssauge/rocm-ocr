@@ -1,0 +1,28 @@
+Musterfirma GmbH
+Musterstraße 42
+10115 Berlin
+
+Rechnung Nr. 2026-0815
+Datum: 10. Oktober 2026
+Fälligkeitsdatum: 24. Oktober 2026
+
+Empfänger: Musterkunde AG
+Gartenstraße 17, 80331 München
+
+Sehr geehrte Damen und Herren,
+vielen Dank für Ihren Auftrag. Wir berechnen für unsere Leistungen:
+
+Position 1: Softwareentwicklung ROCm OCR Microservice - 1.200,00 €
+Position 2: Qualitätssicherung und Dokumentation - 350,00 €
+
+Zwischensumme: 1.550,00 €
+Umsatzsteuer 19% MwSt.: 294,50 €
+Gesamtbetrag: 1.844,50 €
+
+Bitte überweisen Sie den Gesamtbetrag zeitnah.
+Bankverbindung: Berliner Sparkasse
+IBAN: DE89 1005 0000 1062 0945 00 | BIC: BELADEBE100
+
+Geschäftsführer: Dr. Max Mustermann
+Handelsregister: Amtsgericht Berlin-Charlottenburg HRB 123456 B
+Freundliche Grüße aus Berlin!

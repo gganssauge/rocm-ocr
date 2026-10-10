@@ -47,28 +47,59 @@ def _patch_rapidocr_rocm() -> None:
     OrtInferSession._get_ep_list = _rocm_get_ep_list
 
 
-def _resolve_model_kwargs(model_dir: Path) -> dict[str, str]:
+def _find_candidate_file(directory: Path, candidates: list[str]) -> str | None:
+    """Find the first matching candidate file in directory."""
+    for cand in candidates:
+        cand_path = directory / cand
+        if cand_path.is_file():
+            return str(cand_path)
+    return None
+
+
+def _resolve_model_kwargs(
+    model_dir: Path,
+    rec_model_path: Path | None = None,
+    rec_keys_path: Path | None = None,
+) -> dict[str, str]:
     """Inspect model directory and map custom ONNX model paths if present."""
     kwargs: dict[str, str] = {}
-    if not model_dir.exists():
-        return kwargs
+    if rec_model_path and rec_model_path.is_file():
+        kwargs["rec_model_path"] = str(rec_model_path)
+    if rec_keys_path and rec_keys_path.is_file():
+        kwargs["rec_keys_path"] = str(rec_keys_path)
 
-    det_candidates = ["ch_PP-OCRv4_det_infer.onnx", "det.onnx"]
-    cls_candidates = ["ch_ppocr_mobile_v2.0_cls_infer.onnx", "cls.onnx"]
-    rec_candidates = ["ch_PP-OCRv4_rec_infer.onnx", "rec.onnx"]
+    dirs_to_check = [model_dir]
+    if model_dir == Path("/models") and not model_dir.exists():
+        local_models = Path("models")
+        if local_models.exists():
+            dirs_to_check.append(local_models)
 
-    for cand in det_candidates:
-        if (model_dir / cand).is_file():
-            kwargs["det_model_path"] = str(model_dir / cand)
-            break
-    for cand in cls_candidates:
-        if (model_dir / cand).is_file():
-            kwargs["cls_model_path"] = str(model_dir / cand)
-            break
-    for cand in rec_candidates:
-        if (model_dir / cand).is_file():
-            kwargs["rec_model_path"] = str(model_dir / cand)
-            break
+    for check_dir in dirs_to_check:
+        if not check_dir.exists():
+            continue
+        if "det_model_path" not in kwargs:
+            det = _find_candidate_file(
+                check_dir, ["ch_PP-OCRv4_det_infer.onnx", "det.onnx"]
+            )
+            if det:
+                kwargs["det_model_path"] = det
+        if "cls_model_path" not in kwargs:
+            cls = _find_candidate_file(
+                check_dir, ["ch_ppocr_mobile_v2.0_cls_infer.onnx", "cls.onnx"]
+            )
+            if cls:
+                kwargs["cls_model_path"] = cls
+        if "rec_model_path" not in kwargs:
+            rec = _find_candidate_file(
+                check_dir,
+                ["latin_PP-OCRv3_rec_infer.onnx", "rec_latin.onnx", "rec.onnx"],
+            )
+            if rec:
+                kwargs["rec_model_path"] = rec
+        if "rec_keys_path" not in kwargs:
+            keys = _find_candidate_file(check_dir, ["latin_dict.txt", "dict.txt"])
+            if keys:
+                kwargs["rec_keys_path"] = keys
     return kwargs
 
 
@@ -93,7 +124,11 @@ class OcrEngine:
         self._config.apply_rocm_env_overrides()
         _patch_rapidocr_rocm()
 
-        model_kwargs = _resolve_model_kwargs(self._config.ocr_model_dir)
+        model_kwargs = _resolve_model_kwargs(
+            self._config.ocr_model_dir,
+            self._config.ocr_rec_model_path,
+            self._config.ocr_rec_keys_path,
+        )
         self._engine = RapidOCR(**model_kwargs)
         self._active_provider = self._detect_active_provider()
 
