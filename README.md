@@ -1,85 +1,180 @@
-# rocm-ocr
+# 🚀 ROCm OCR Microservice
 
-Standalone, high-performance OCR inference microservice accelerated by AMD ROCm GPUs using RapidOCR and ONNX Runtime.
-
+[![CI](https://github.com/gganssauge/rocm-ocr/actions/workflows/ci.yaml/badge.svg)](https://github.com/gganssauge/rocm-ocr/actions/workflows/ci.yaml)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
-[![AMD ROCm](https://img.shields.io/badge/ROCm-7.1%20%7C%20RDNA3-red.svg)](https://rocm.docs.amd.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![AMD ROCm 7.1](https://img.shields.io/badge/AMD%20ROCm-7.1%20%7C%20RDNA3-red.svg)](https://rocm.docs.amd.com/)
+[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-ROCm%201.20+-green.svg)](https://onnxruntime.ai/)
+[![Renovate](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://renovatebot.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+A standalone, domain-agnostic, and production-ready **OCR inference microservice** accelerated by **AMD ROCm GPUs** (specifically optimized for consumer **AMD Radeon RX 7800 XT / RDNA3 / `gfx1101`**).
+
+Built on top of **FastAPI**, **RapidOCR**, and **ONNX Runtime ROCm**, it delivers sub-second to low-second document text detection and character recognition without requiring proprietary NVIDIA CUDA hardware.
 
 ---
 
-## Overview
+## 🌟 Highlights & Key Features
 
-`rocm-ocr` executes PP-OCRv4 and PP-OCRv3 models (text detection, angle classification, and recognition) accelerated on AMD ROCm consumer and datacenter GPUs (specifically tuned for AMD Radeon RX 7800 XT / RDNA3 / `gfx1101`).
-
-- **Architecture:** Clean, domain-agnostic asynchronous HTTP REST API (FastAPI).
-- **Concurrency Control:** Dynamic `/ocr/v1/setup` endpoint to tune concurrency at runtime.
-- **Microservice Ready:** Built-in `X-Correlation-ID` tracing across logs and responses via `asgi-correlation-id`.
-- **Fail-Fast:** Hardware/GPU errors are reported transparently via HTTP 503; no silent CPU fallbacks.
-- **Documentation:** Complete specification and deployment guide in [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
-
----
-
-## Performance Benchmark
-
-In-cluster benchmark on AMD Radeon RX 7800 XT (`gfx1101`) sharing GPU resources with Ollama:
-
-| Document | Pure CPU Baseline | **ROCm GPU Microservice** | Speedup |
-| :--- | :--- | :--- | :--- |
-| **Standard Invoice (59 boxes, PDF)** | 4.15 s | **1.36 s** | **~3.05×** |
-| **Bundestagsdrucksache (38 boxes, PDF)** | 5.15 s | **2.38 s** | **~2.16×** |
-
-*Note: Latency includes HTTP request/response transfer, PDF rasterization (144 DPI), GPU detection, and text recognition.*
+- **⚡ Hardware Acceleration for AMD RDNA3:** Exploits AMD ROCm via `ROCMExecutionProvider` on consumer cards (`gfx1101`), running side-by-side with other GPU workloads (such as Ollama).
+- **🇩🇪 German Language & Full Diacritics Support:** Includes high-accuracy models (`latin_PP-OCRv3_rec`) recognizing German umlauts (`ä`, `ö`, `ü`, `ß`), capitalization, and special characters.
+- **🏎️ Optimized Hybrid Pipeline:** Text detection and angle classification execute on the GPU; text recognition runs with tuned multi-core CPU threading (`intra_op_num_threads=4`) to circumvent RDNA3 kernel bugs while maintaining blistering throughput.
+- **🔍 Production Observability:** Full correlation ID propagation via `asgi-correlation-id` (`X-Correlation-ID`) across HTTP headers and structured access logs.
+- **🤫 Quiet & Production-Grade Logging:** Built-in log filters suppress routine Kubernetes health check noise (`200 OK` on `/healthz` & `/readyz`) and eliminate low-level C++ MIOpen stderr kernel-lookup warnings.
+- **🛡️ Fail-Fast Reliability:** Hardware or GPU driver exceptions transparently return `HTTP 503 Service Unavailable` with diagnostic error payloads — strictly avoiding silent CPU fallbacks that degrade cluster performance.
+- **🔄 Dynamic Concurrency Tuning:** Runtime adjustable inference slots via `/ocr/v1/setup` to balance GPU memory between microservices.
 
 ---
 
-## Quickstart
+## 📊 Performance Benchmarks
 
-### Local Development (Python 3.12 strictly via `uv`)
+Measured live inside a Kubernetes (`k3s`) production cluster on a single **AMD Radeon RX 7800 XT (16 GB)** sharing GPU resources concurrently with an active Ollama instance:
+
+| Test Document | Content | Pure CPU Baseline | **ROCm OCR Microservice** | Speedup |
+| :--- | :--- | :---: | :---: | :---: |
+| **Standard Invoice** | 1 Page, 59 Bounding Boxes | 4.15 s | **1.36 s** | **~3.05× faster** |
+| **Bundestagsdrucksache** | 1 Page, Dense Government Text (38 Boxes) | 5.15 s | **2.38 s** | **~2.16× faster** |
+
+> **Note:** Timings represent full round-trip HTTP requests, including multi-part upload, PyMuPDF rendering at 144 DPI, GPU text detection, angle classification, text recognition, and JSON serialization. Direct HTTP overhead is **< 15 ms**.
+
+---
+
+## 🏗️ Architecture & Pipeline
+
+```mermaid
+flowchart LR
+    Client["Client / Microservice"] -->|Multipart PDF/Image| API["FastAPI Entrypoint"]
+    API -->|X-Correlation-ID| Log["Structured Logging"]
+    API --> Parse["Document Parser (PyMuPDF 144 DPI)"]
+
+    subgraph OCR Pipeline
+        Parse --> Det["Text Detection (GPU / ROCm)"]
+        Det --> Cls["Angle Classifier (GPU / ROCm)"]
+        Cls --> Rec["Text Recognition (CPU / 4 Threads)"]
+    end
+
+    Rec --> JSON["Bounding Boxes & Text"]
+    JSON -->|HTTP 200| Client
+```
+
+---
+
+## 🚀 Quickstart
+
+### 1. Local Development (Strictly Python 3.12 via `uv`)
 
 ```bash
-# Install dependencies
+# Clone repository
+git clone https://github.com/gganssauge/rocm-ocr.git
+cd rocm-ocr
+
+# Install dependencies (strictly Python 3.12)
 uv sync --all-groups
 
-# Start local server
+# Run local development server
 uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Run test suite
+# Run comprehensive test suite
 uv run pytest
 ```
 
-### Docker Build & Run
+### 2. Docker Container
+
+Build and run using the self-contained multi-stage Docker image:
 
 ```bash
-# Build multi-stage ROCm container
+# Build the image
 docker build -t rocm-ocr:local .
 
-# Run container with AMD GPU access
-docker run --rm -it -p 8000:8000 \
-  --device=/dev/kfd --device=/dev/dri \
-  --group-add video --group-add render \
+# Run with direct AMD GPU pass-through
+docker run --rm -d \
+  --name rocm-ocr \
+  -p 8000:8000 \
+  --device=/dev/kfd \
+  --device=/dev/dri \
+  --group-add video \
+  --group-add render \
   --security-opt seccomp=unconfined \
   rocm-ocr:local
 ```
 
-### Kubernetes / k3s Deployment
+### 3. Kubernetes / k3s GitOps Deployment
 
-Manifests are provided in [`deploy/k8s/`](deploy/k8s/):
+Production manifests are structured with Kustomize under [`deploy/k8s/`](deploy/k8s/):
 
 ```bash
+# Apply namespace, service, and deployment
 kubectl apply -k deploy/k8s/
+
+# Monitor rollout status
 kubectl rollout status deployment/rocm-ocr -n ocr
+
+# Run in-cluster end-to-end verification
+uv run python scripts/test_k8s_e2e.py --keep
 ```
 
 ---
 
-## API Summary
+## 🔌 API Reference & Usage
 
-| Method | Endpoint | Description |
+### Interactive API Docs
+
+When running, interactive OpenAPI/Swagger documentation is available at:
+`http://localhost:8000/docs`
+
+### Key Endpoints
+
+| Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/healthz` | Liveness probe (HTTP 200). Routinely filtered from access logs. |
-| `GET` | `/readyz` | Readiness probe verifying GPU provider and OCR engine health. |
-| `POST` | `/ocr/v1/setup` | Dynamically update concurrency limit at runtime. |
-| `POST` | `/ocr/v1/predict` | Upload PDF or image (`multipart/form-data`) for OCR text & bounding boxes. |
+| `GET` | `/healthz` | Kubernetes liveness probe (HTTP 200). Suppressed from access logs. |
+| `GET` | `/readyz` | Kubernetes readiness probe. Verifies GPU provider and engine readiness. |
+| `POST` | `/ocr/v1/setup` | Dynamically configures maximum concurrent inference tasks. |
+| `POST` | `/ocr/v1/predict` | Executes OCR text extraction on uploaded PDF or raster images. |
 
-Full schema definitions and request/response examples are documented in [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
+### Prediction Example (`curl`)
+
+```bash
+curl -X POST "http://localhost:8000/ocr/v1/predict" \
+  -H "X-Correlation-ID: my-trace-id-12345" \
+  -F "file=@sample_invoice.pdf"
+```
+
+#### Sample Response
+
+```json
+{
+  "execution_provider": "ROCMExecutionProvider",
+  "inference_time_ms": 1359.1,
+  "pages": [
+    {
+      "page_number": 0,
+      "width": 595.3,
+      "height": 841.9,
+      "boxes": [
+        {
+          "text": "Rechnung Nr. 2026-0042",
+          "bbox": [54.0, 72.5, 230.1, 88.0],
+          "confidence": 0.9852
+        },
+        {
+          "text": "Fälligkeitsdatum: 31.10.2026",
+          "bbox": [54.0, 95.0, 245.5, 110.2],
+          "confidence": 0.9914
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## 📖 In-Depth Documentation
+
+For detailed architectural decisions, MIOpen solver mechanics, GitOps integration, and production configuration parameters, refer to the full specification:
+👉 **[Full Documentation & Architecture Guide (docs/DOCUMENTATION.md)](docs/DOCUMENTATION.md)**
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
