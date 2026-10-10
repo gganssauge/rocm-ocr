@@ -34,3 +34,6 @@ coverage.xml
 # Downloaded models / scratch artifacts
 models/
 *.onnx
+
+# Local test documents (containing personal/sensitive data)
+*Aktivierungscode*
