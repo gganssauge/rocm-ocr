@@ -52,6 +52,8 @@ def _patch_rapidocr_rocm() -> None:
 
     def _rocm_init(self: OrtInferSession, config: dict[str, Any]) -> None:
         setattr(self, "_model_path", str(config.get("model_path", "")))  # noqa: B010
+        if config.get("intra_op_num_threads", -1) == -1:
+            config["intra_op_num_threads"] = 4
         original_init(self, config)
 
     def _rocm_get_ep_list(self: OrtInferSession) -> list[tuple[str, dict[str, Any]]]:
