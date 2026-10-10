@@ -14,6 +14,7 @@ dependencies = [
     "pillow>=10.0.0",
     "pymupdf>=1.24.0",
     "python-multipart>=0.0.9",
+    "asgi-correlation-id>=5.0.1",
 ]
 
 [tool.uv]

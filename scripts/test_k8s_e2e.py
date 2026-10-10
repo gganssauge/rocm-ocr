@@ -61,16 +61,21 @@ def verify_inference_result(data: dict[str, Any]) -> None:
         )
 
 
-def execute_e2e_predict(base_url: str, invoice_path: Path) -> dict[str, Any]:
-    """Send neutral German invoice to /ocr/v1/predict and return payload."""
+def execute_e2e_predict(
+    base_url: str, invoice_path: Path, correlation_id: str | None = None
+) -> tuple[dict[str, Any], str | None]:
+    """Send neutral German invoice to predict endpoint and return response data."""
     if not invoice_path.is_file():
         raise FileNotFoundError(f"Invoice fixture missing: {invoice_path}")
 
     files = {"file": (invoice_path.name, invoice_path.read_bytes(), "application/pdf")}
-    resp = httpx.post(f"{base_url}/ocr/v1/predict", files=files, timeout=60.0)
+    headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
+    resp = httpx.post(
+        f"{base_url}/ocr/v1/predict", files=files, headers=headers, timeout=60.0
+    )
     if resp.status_code != 200:
         raise RuntimeError(f"Predict failed HTTP {resp.status_code}: {resp.text}")
-    return resp.json()
+    return resp.json(), resp.headers.get("X-Correlation-ID")
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,17 +110,22 @@ def run_test_suite(base_url: str, fixture_path: Path) -> None:
     )
     print("✓ /readyz OK")
 
-    print("Sending inference request for German invoice fixture...")
+    expected_cid = "e2e-cluster-trace-42"
+    print(f"Sending inference request with X-Correlation-ID: {expected_cid}...")
     start_time = time.time()
-    payload = execute_e2e_predict(base_url, fixture_path)
+    payload, resp_cid = execute_e2e_predict(
+        base_url, fixture_path, correlation_id=expected_cid
+    )
     elapsed = (time.time() - start_time) * 1000
 
+    assert resp_cid == expected_cid, f"Correlation ID mismatch: {resp_cid}"
     verify_inference_result(payload)
     print(
         f"✓ Inference successful in {elapsed:.1f}ms "
         f"(reported GPU latency: {payload['inference_time_ms']}ms)"
     )
     print(f"✓ Execution Provider: {payload['execution_provider']}")
+    print(f"✓ Correlation ID verified: {resp_cid}")
 
 
 def main() -> int:

@@ -5,12 +5,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 
 from rocm_ocr.concurrency import DynamicConcurrencyLimiter
 from rocm_ocr.config import settings
 from rocm_ocr.engine import GpuInferenceError, OcrEngine
+from rocm_ocr.logging import setup_logging
 from rocm_ocr.models import (
     ErrorResponse,
     HealthResponse,
@@ -26,6 +28,7 @@ from rocm_ocr.parser import UnsupportedFormatError, parse_document
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize application state, concurrency limiter, and OCR engine."""
+    setup_logging()
     app.state.limiter = DynamicConcurrencyLimiter(settings.ocr_concurrency)
     app.state.engine = OcrEngine(settings)
     yield
@@ -36,6 +39,12 @@ app = FastAPI(
     description="High-performance OCR inference accelerated by AMD ROCm",
     version="0.1.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CorrelationIdMiddleware,
+    header_name="X-Correlation-ID",
+    validator=None,
 )
 
 
