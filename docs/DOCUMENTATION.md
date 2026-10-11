@@ -219,6 +219,6 @@ uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000 --reload
 # Tests ausführen
 uv run pytest
 
-# Pre-Commit-Prüfungen (Ruff, ty, markdownlint)
+# Pre-Commit-Prüfungen manuell diagnostizieren (bei Hook-Fehlern)
 uv run prek run --all-files
 ```

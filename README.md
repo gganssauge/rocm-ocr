@@ -1,6 +1,7 @@
 # 🚀 ROCm OCR Microservice
 
 [![CI](https://github.com/gganssauge/rocm-ocr/actions/workflows/ci.yaml/badge.svg)](https://github.com/gganssauge/rocm-ocr/actions/workflows/ci.yaml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=gganssauge_rocm-ocr&metric=alert_status)](https://sonarcloud.io/dashboard?id=gganssauge_rocm-ocr)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
 [![AMD ROCm 7.1](https://img.shields.io/badge/AMD%20ROCm-7.1%20%7C%20RDNA3-red.svg)](https://rocm.docs.amd.com/)
 [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-ROCm%201.20+-green.svg)](https://onnxruntime.ai/)
