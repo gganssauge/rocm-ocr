@@ -53,6 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     librocm-smi64-7 \
     rocminfo \
     && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/pebble \
     && mkdir -p /app/lib/rocm \
     && ln -sf /usr/lib/x86_64-linux-gnu/librocm_smi64.so.7 /app/lib/rocm/librocm_smi64.so.1 \
     && (getent group render || groupadd -g 109 render) \
