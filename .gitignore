@@ -35,6 +35,7 @@ coverage.xml
 models/
 *.onnx
 lib/rocm/
+src/rocm_ocr/static/
 
 # Local test documents (containing personal/sensitive data)
 *Aktivierungscode*

@@ -205,6 +205,13 @@ Führt die Texterkennung auf einem hochgeladenen Dokument oder Bild durch.
   - `422 Unprocessable Entity`: Fehlender Multipart-Parameter `file`.
   - `503 Service Unavailable`: Hardware-/Treiberfehler der GPU (inkl. detailliertem JSON-Error).
 
+### 4.5 `GET /scalar` & `GET /docs`
+
+Interaktive API-Dokumentation basierend auf Scalar (`scalar-fastapi`).
+
+- **Air-Gapped & Offline-Fähig:** Im Docker-Image werden die statischen Frontend-Assets (`scalar.js`, `favicon.png`) via BuildKit `ADD --checksum=sha256:...` zur Build-Zeit kryptografisch verifiziert heruntergeladen. Externe CDN-Aufrufe, externe Schriftarten oder Telemetriedienste entfallen vollständig.
+- **`GET /docs`:** Leitet mit HTTP 307 automatisch auf `/scalar` weiter.
+
 ---
 
 ## 5. Lokale Entwicklung & Qualitätssicherung

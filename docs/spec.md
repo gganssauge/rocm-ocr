@@ -98,6 +98,11 @@ Executes OCR inference on an uploaded document or image.
 - `GET /healthz`: Returns HTTP 200 as soon as the HTTP server is listening.
 - `GET /readyz`: Verifies that ONNX Runtime and the configured Execution Provider (`ROCMExecutionProvider` or fallback) are loaded and capable of executing inference.
 
+### 2.4 `GET /scalar` & `GET /docs`
+
+- `GET /scalar`: Interactive API documentation powered by Scalar (`scalar-fastapi`). In container deployments, frontend assets (`scalar.js`, `favicon.png`) are pre-baked at build time to provide fully air-gapped operation without external CDN dependencies.
+- `GET /docs`: Redirects (HTTP 307) to `/scalar`.
+
 ---
 
 ## 3. Environment Variables & Defaults
