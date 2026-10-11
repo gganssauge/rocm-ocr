@@ -85,11 +85,11 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _resolve_latin_model() -> AssetInfo:
-    """Resolve Latin recognition model commit hash and digest from Hugging Face."""
+def _resolve_recognition_model() -> AssetInfo:
+    """Resolve PP-OCRv6 recognition model commit hash and digest."""
     probe_url = (
-        "https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3"
-        "/resolve/main/latin_PP-OCRv3_rec_infer.onnx"
+        "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx"
+        "/resolve/main/inference.onnx"
     )
     req = urllib.request.Request(
         probe_url, method="HEAD", headers={"User-Agent": "rocm-ocr-updater"}
@@ -106,13 +106,13 @@ def _resolve_latin_model() -> AssetInfo:
         raise RuntimeError("Could not determine x-repo-commit from Hugging Face")
 
     pinned_url = (
-        f"https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3"
-        f"/resolve/{commit}/latin_PP-OCRv3_rec_infer.onnx"
+        f"https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx"
+        f"/resolve/{commit}/inference.onnx"
     )
     digest = _fetch_stream_sha256(pinned_url)
     return AssetInfo(
-        name="Latin PP-OCRv3 model",
-        destination="/models/latin_PP-OCRv3_rec_infer.onnx",
+        name="PP-OCRv6 small recognition model",
+        destination="/models/PP-OCRv6_small_rec.onnx",
         url=pinned_url,
         digest=digest,
     )
@@ -148,7 +148,7 @@ def _update_instruction_content(content: str, asset: AssetInfo) -> tuple[str, bo
 def update_dockerfile(dockerfile_path: Path, check_only: bool = False) -> int:
     """Check or update ADD instructions in Dockerfile to match upstream assets."""
     content = dockerfile_path.read_text(encoding="utf-8")
-    resolvers = [_resolve_scalar, _resolve_favicon, _resolve_latin_model]
+    resolvers = [_resolve_scalar, _resolve_favicon, _resolve_recognition_model]
 
     any_changed = False
     for resolve_fn in resolvers:

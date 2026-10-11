@@ -35,13 +35,14 @@ ADD --checksum=sha256:d16f72cf5a2773eba499cc7f3db1923c6f5f73de990f739e3a05806aaf
     https://fastapi.tiangolo.com/img/favicon.png \
     /app/src/rocm_ocr/static/favicon.png
 
-# Download Latin recognition model with cryptographic digest verification
-ADD --checksum=sha256:4fd81948e80f385afc2a9410a51904b70b6ff6dae9e26c2fc54c4bc52d4124d6 \
-    https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3/resolve/f6567a4a5d5ed30129b5ff7ffe5b226cd2678644/latin_PP-OCRv3_rec_infer.onnx \
-    /models/latin_PP-OCRv3_rec_infer.onnx
+# Download PP-OCRv6 recognition model with cryptographic digest verification
+ADD --checksum=sha256:5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634 \
+    https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx/resolve/b8f84f0b80c529de40b4fbb3544b84fa7233a513/inference.onnx \
+    /models/PP-OCRv6_small_rec.onnx
 
 # Prepare self-contained /models and generate stub libroctracer64.so.4
 RUN mkdir -p /models /app/lib/rocm && \
+    cp src/rocm_ocr/resources/ppocrv6_dict.txt /models/ppocrv6_dict.txt && \
     cp src/rocm_ocr/resources/latin_dict.txt /models/latin_dict.txt && \
     VENV_MODELS=$(find /app/.venv -type d -name "models" | head -n 1) && \
     cp "$VENV_MODELS/ch_PP-OCRv4_det_infer.onnx" /models/ch_PP-OCRv4_det_infer.onnx && \

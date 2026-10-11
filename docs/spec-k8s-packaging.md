@@ -10,7 +10,7 @@ Therefore, the service requires an automated, self-contained container build and
 
 ## Solution
 
-1. Provide an optimized, multi-stage `Dockerfile` based on `ubuntu:24.04` that includes required ROCm user-space runtime libraries (`librocm-smi64-7`, `libamdhip64-7`, `libhipblas3`, `libhipfft0`), compatibility shims for ONNX Runtime (`librocm_smi64.so.1` and `libroctracer64.so.4`), self-contained OCR models (`ch_PP-OCRv4_det_infer.onnx`, `latin_PP-OCRv3_rec_infer.onnx`, `latin_dict.txt`), and production runtime configuration.
+1. Provide an optimized, multi-stage `Dockerfile` based on `ubuntu:24.04` that includes required ROCm user-space runtime libraries (`librocm-smi64-7`, `libamdhip64-7`, `libhipblas3`, `libhipfft0`), compatibility shims for ONNX Runtime (`librocm_smi64.so.1` and `libroctracer64.so.4`), self-contained OCR models (`ch_PP-OCRv4_det_infer.onnx`, `PP-OCRv6_small_rec.onnx`, `ppocrv6_dict.txt`), and production runtime configuration.
 2. Provide GitOps-ready Kubernetes Kustomize manifests under `deploy/k8s/` configured for the `ocr` namespace. To allow simultaneous GPU operation with existing workloads without device-plugin locking, the pod mounts host render nodes (`/dev/kfd` and `/dev/dri`) with GID supplementary groups (`video: 44`, `render: 109`).
 3. Provide an end-to-end integration test runner that builds the container image, imports it into the local `k3s` containerd runtime, deploys the service, validates live HTTP endpoints over a port-forwarded connection, verifies `ROCMExecutionProvider` GPU inference with German umlauts, and manages lifecycle teardown.
 
@@ -34,7 +34,7 @@ Therefore, the service requires an automated, self-contained container build and
    - Compatibility shims (`librocm_smi64.so.1` linked to system SMI and a stub `libroctracer64.so.4`) are placed in the application's library search path.
 
 2. **Self-Contained Model Packaging**:
-   - Detection model (`ch_PP-OCRv4_det_infer.onnx`), recognition model (`latin_PP-OCRv3_rec_infer.onnx`), and Latin dictionary (`latin_dict.txt`) are copied into `/models` within the container.
+   - Detection model (`ch_PP-OCRv4_det_infer.onnx`), recognition model (`PP-OCRv6_small_rec.onnx`), and multilingual dictionary (`ppocrv6_dict.txt`) are copied into `/models` within the container.
    - Default environment variable `OCR_MODEL_DIR=/models` is baked into the image.
 
 3. **GPU Hardware Access in Kubernetes**:

@@ -15,7 +15,7 @@ Er dient als performantes OCR-Backend in Linux- und Kubernetes-Umgebungen und te
 
 - **AMD ROCm GPU-Beschleunigung:** Text-Detektion (`ch_PP-OCRv4_det_infer.onnx`) und Richtungsklassifikation (`ch_ppocr_mobile_v2.0_cls_infer.onnx`) laufen auf der GPU über `ROCMExecutionProvider`.
 - **RDNA3-Optimierung:** Automatische Kompatibilitätspatches für Consumer-Grafikkarten (`HSA_OVERRIDE_GFX_VERSION=11.0.0`, MIOpen Fast-Heuristics und Thread-Optimierung).
-- **Hohe Genauigkeit:** Modellgestützte Erkennung mit lateinischem Zeichensatz (`latin_PP-OCRv3_rec_infer.onnx`) für vollständige Unterstützung deutscher Sonderzeichen (ä, ö, ü, ß, Groß-/Kleinschreibung).
+- **Hohe Genauigkeit:** Modellgestützte Erkennung mit modernem 50-Sprachen-Zeichensatz (`PP-OCRv6_small_rec.onnx`) für vollständige und robuste Unterstützung deutscher Sonderzeichen (ä, ö, ü, ß, Groß-/Kleinschreibung) sowie konfigurierbare Rückwärtskompatibilität zu PP-OCRv3.
 - **Zustandslose REST-API:** Asynchrone FastAPI-Implementierung mit Pydantic V2-Datenmodellen.
 - **Microservice-Observability:** Volle Unterstützung von `X-Correlation-ID` (`asgi-correlation-id`) zur Traceability über Servicegrenzen hinweg.
 - **Stille Logs:** Automatische Filterung routinemäßiger `200 OK`-Healthchecks (`/healthz`, `/readyz`) und C-Level-Dämpfung interner MIOpen-Solver-Meldungen.
@@ -51,9 +51,9 @@ Die Texterkennung gliedert sich in drei Stufen:
    - Provider: `ROCMExecutionProvider` (GPU)
    - Korrigiert 0°/180°-Zeilenausrichtungen in ca. **100 ms**.
 3. **Erkennung (Text Recognition):**
-   - Modell: `latin_PP-OCRv3_rec_infer.onnx`
+   - Modell: `PP-OCRv6_small_rec.onnx` (Default, konfigurierbar auf v6 Medium oder v3 Latin)
    - Provider: `CPUExecutionProvider` mit `intra_op_num_threads = 4`
-   - **Hintergrund:** Ältere PP-OCRv3-Modelle mit `BiasSoftmax`-Operatoren lösen im aktuellen MIOpen-RDNA3-Treiber bei dynamischen Zeilenbreiten einen Kernel-Fehler aus. Das Modell wird isoliert auf 4 CPU-Threads ausgeführt. Dies vermeidet Thread-Contention auf Mehrkernsystemen und liefert Inferenzzeiten von ~1,0 s für 60 Textzeilen.
+   - **Hintergrund:** Text-Erkennungsmodelle laufen isoliert auf 4 CPU-Threads. Dies verhindert RDNA3-Kernel-Probleme bei dynamischen Zeilenbreiten, liefert Inferenzzeiten von ~850 ms und spart wertvollen VRAM für parallel laufende GPU-Dienste wie Qwen2.5 / Ollama.
 
 ### 2.3 C-Level Stderr-Dämpfung
 
