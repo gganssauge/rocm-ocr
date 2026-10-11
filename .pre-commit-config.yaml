@@ -14,13 +14,13 @@ repos:
         args: ['--maxkb=5000']
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.23.2
+    rev: v0.23.3
     hooks:
       - id: markdownlint-cli2
         args: [--fix]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.8
+    rev: v0.17.0
     hooks:
       - id: ruff-check
         args: [--fix]
