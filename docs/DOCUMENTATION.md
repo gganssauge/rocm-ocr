@@ -222,3 +222,14 @@ uv run pytest
 # Pre-Commit-Prüfungen manuell diagnostizieren (bei Hook-Fehlern)
 uv run prek run --all-files
 ```
+
+---
+
+## 6. CI/CD & Fast-Path Pipeline
+
+Die GitHub Actions Pipeline (`.github/workflows/ci.yaml`) umfasst:
+
+- **Test & SonarCloud Analysis:** Linting (Ruff), Typisierung (`ty check`), Pytest mit XML-Coverage-Report und automatische SonarCloud Quality Gate Überprüfung.
+- **Fast-Path Pfad-Erkennung:** Änderungen, die ausschließlich Dokumentation oder Metadaten betreffen (`docs/**`, `*.md`, `renovate.json`, `sonar-project.properties`), überspringen den zeitaufwendigen Docker-Build.
+- **Docker Build & Trivy Scan:** Container-relevante Änderungen bauen das Image und prüfen es auf ungefixte HIGH/CRITICAL-Schwachstellen.
+- **Automerge:** PRs mit dem Label `automerge` werden nach erfolgreicher Quality-Gate-Prüfung automatisch gesquasht und gemerged.
