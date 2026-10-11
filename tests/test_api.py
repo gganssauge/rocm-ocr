@@ -48,11 +48,13 @@ async def test_readyz_endpoint(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_readyz_endpoint_not_ready(client: AsyncClient) -> None:
+async def test_readyz_endpoint_not_ready(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify /readyz returns 503 when engine is not ready."""
     mock_engine = MagicMock()
     mock_engine.is_ready.return_value = False
-    app.state.engine = mock_engine
+    monkeypatch.setattr(app.state, "engine", mock_engine)
 
     response = await client.get("/readyz")
     assert response.status_code == 503
@@ -107,7 +109,9 @@ async def test_predict_endpoint_bad_file(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_predict_endpoint_gpu_error_fail_fast(client: AsyncClient) -> None:
+async def test_predict_endpoint_gpu_error_fail_fast(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify /ocr/v1/predict transparently returns 503 on GPU error."""
     mock_engine = MagicMock()
     mock_engine.active_provider = ROCM_PROVIDER
@@ -116,7 +120,7 @@ async def test_predict_endpoint_gpu_error_fail_fast(client: AsyncClient) -> None
         provider_attempted=ROCM_PROVIDER,
         error_message="HIP out of memory error on device gfx1101",
     )
-    app.state.engine = mock_engine
+    monkeypatch.setattr(app.state, "engine", mock_engine)
 
     img_bytes = _create_test_image_bytes()
     files = {"file": ("test.png", img_bytes, "image/png")}
