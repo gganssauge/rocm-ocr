@@ -59,15 +59,26 @@ def _patch_rapidocr_rocm() -> None:
     def _rocm_get_ep_list(self: OrtInferSession) -> list[tuple[str, dict[str, Any]]]:
         ep_list = original_get_ep_list(self)
         available = ort.get_available_providers()
-        model_str = getattr(self, "_model_path", "")
-        is_legacy_rec = "latin" in model_str or "PP-OCRv3_rec" in model_str
-        if ROCM_PROVIDER in available and not is_legacy_rec:
+        model_str = getattr(self, "_model_path", "").lower()
+        is_rec = (
+            "_rec" in model_str
+            or "latin" in model_str
+            or "rec_" in model_str
+            or "rec.onnx" in model_str
+        )
+        if is_rec:
+            # Recognition models execute on CPU (intra_op_num_threads=4) to prevent
+            # RDNA3 kernel issues and preserve GPU VRAM for concurrent LLMs (Qwen2.5).
+            return [ep for ep in ep_list if ep[0] != ROCM_PROVIDER]
+
+        if ROCM_PROVIDER in available:
             rocm_opts = {
                 "device_id": 0,
                 "arena_extend_strategy": "kNextPowerOfTwo",
                 "miopen_conv_exhaustive_search": False,
                 "do_copy_in_default_stream": True,
             }
+            ep_list = [ep for ep in ep_list if ep[0] != ROCM_PROVIDER]
             ep_list.insert(0, (ROCM_PROVIDER, rocm_opts))
         return ep_list
 
@@ -124,9 +135,16 @@ def _resolve_model_kwargs(
         ("cls_model_path", ["ch_ppocr_mobile_v2.0_cls_infer.onnx", "cls.onnx"]),
         (
             "rec_model_path",
-            ["latin_PP-OCRv3_rec_infer.onnx", "rec_latin.onnx", "rec.onnx"],
+            [
+                "PP-OCRv6_small_rec.onnx",
+                "PP-OCRv6_small_rec_infer.onnx",
+                "PP-OCRv6_medium_rec.onnx",
+                "PP-OCRv6_rec.onnx",
+                "latin_PP-OCRv3_rec_infer.onnx",
+                "rec_latin.onnx",
+                "rec.onnx",
+            ],
         ),
-        ("rec_keys_path", ["latin_dict.txt", "dict.txt"]),
     ]
     for key, candidates in lookup_map:
         if key not in kwargs:
@@ -135,9 +153,19 @@ def _resolve_model_kwargs(
                 kwargs[key] = found
 
     if "rec_keys_path" not in kwargs and "rec_model_path" in kwargs:
-        bundled_dict = Path(__file__).parent / "resources" / "latin_dict.txt"
-        if bundled_dict.is_file():
-            kwargs["rec_keys_path"] = str(bundled_dict)
+        rec_model = kwargs.get("rec_model_path", "").lower()
+        if "latin" in rec_model or "pp-ocrv3" in rec_model:
+            dict_candidates = ["latin_dict.txt", "dict.txt"]
+            bundled_fallback = Path(__file__).parent / "resources" / "latin_dict.txt"
+        else:
+            dict_candidates = ["ppocrv6_dict.txt", "latin_dict.txt", "dict.txt"]
+            bundled_fallback = Path(__file__).parent / "resources" / "ppocrv6_dict.txt"
+
+        found_dict = _find_in_dirs(dirs, dict_candidates)
+        if found_dict:
+            kwargs["rec_keys_path"] = found_dict
+        elif bundled_fallback.is_file():
+            kwargs["rec_keys_path"] = str(bundled_fallback)
     return kwargs
 
 

@@ -44,6 +44,19 @@ def test_resolve_model_kwargs_custom_models(tmp_path: Path) -> None:
     assert "latin_dict.txt" in kwargs["rec_keys_path"]
 
 
+def test_resolve_model_kwargs_ppocrv6(tmp_path: Path) -> None:
+    """Test resolving model kwargs when PP-OCRv6 models and dict exist."""
+    (tmp_path / "ch_PP-OCRv4_det_infer.onnx").touch()
+    (tmp_path / "ch_ppocr_mobile_v2.0_cls_infer.onnx").touch()
+    (tmp_path / "PP-OCRv6_small_rec.onnx").touch()
+    (tmp_path / "ppocrv6_dict.txt").touch()
+    kwargs = _resolve_model_kwargs(tmp_path)
+    assert "det_model_path" in kwargs
+    assert "cls_model_path" in kwargs
+    assert kwargs["rec_model_path"].endswith("PP-OCRv6_small_rec.onnx")
+    assert kwargs["rec_keys_path"].endswith("ppocrv6_dict.txt")
+
+
 def test_ocr_engine_is_ready() -> None:
     """Verify that OcrEngine.is_ready() reports true for healthy engine."""
     engine = OcrEngine(Settings())

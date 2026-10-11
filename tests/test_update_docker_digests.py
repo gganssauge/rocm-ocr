@@ -15,10 +15,10 @@ from scripts.update_docker_digests import (  # noqa: E402
 
 CHK_1 = "sha256:" + "1" * 64
 CHK_FAV = "sha256:d16f72cf5a2773eba499cc7f3db1923c6f5f73de990f739e3a05806aafec15b7"
-CHK_LAT = "sha256:4fd81948e80f385afc2a9410a51904b70b6ff6dae9e26c2fc54c4bc52d4124d6"
+CHK_V6 = "sha256:5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
 HF_URL = (
-    "https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3"
-    "/resolve/f6567a4a5d5ed30129b5ff7ffe5b226cd2678644/latin_PP-OCRv3_rec_infer.onnx"
+    "https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec_onnx"
+    "/resolve/b8f84f0b80c529de40b4fbb3544b84fa7233a513/inference.onnx"
 )
 
 SAMPLE_DOCKERFILE = (
@@ -30,9 +30,9 @@ SAMPLE_DOCKERFILE = (
     f"ADD --checksum={CHK_FAV} \\\n"
     "    https://fastapi.tiangolo.com/img/favicon.png \\\n"
     "    /app/src/rocm_ocr/static/favicon.png\n\n"
-    f"ADD --checksum={CHK_LAT} \\\n"
+    f"ADD --checksum={CHK_V6} \\\n"
     f"    {HF_URL} \\\n"
-    "    /models/latin_PP-OCRv3_rec_infer.onnx\n"
+    "    /models/PP-OCRv6_small_rec.onnx\n"
 )
 
 
@@ -85,10 +85,10 @@ def test_update_dockerfile_check_mode(tmp_path: Path) -> None:
             digest=CHK_FAV.removeprefix("sha256:"),
         ),
         AssetInfo(
-            name="Latin PP-OCRv3 model",
-            destination="/models/latin_PP-OCRv3_rec_infer.onnx",
+            name="PP-OCRv6 small recognition model",
+            destination="/models/PP-OCRv6_small_rec.onnx",
             url=HF_URL,
-            digest=CHK_LAT.removeprefix("sha256:"),
+            digest=CHK_V6.removeprefix("sha256:"),
         ),
     ]
 
@@ -102,7 +102,7 @@ def test_update_dockerfile_check_mode(tmp_path: Path) -> None:
             return_value=fake_assets[1],
         ),
         patch(
-            "scripts.update_docker_digests._resolve_latin_model",
+            "scripts.update_docker_digests._resolve_recognition_model",
             return_value=fake_assets[2],
         ),
     ):

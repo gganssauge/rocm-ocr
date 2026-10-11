@@ -17,7 +17,7 @@ Built on top of **FastAPI**, **RapidOCR**, and **ONNX Runtime ROCm**, it deliver
 ## 🌟 Highlights & Key Features
 
 - **⚡ Hardware Acceleration for AMD RDNA3:** Exploits AMD ROCm via `ROCMExecutionProvider` on consumer cards (`gfx1101`), running side-by-side with other GPU workloads (such as Ollama).
-- **🇩🇪 German Language & Full Diacritics Support:** Includes high-accuracy models (`latin_PP-OCRv3_rec`) recognizing German umlauts (`ä`, `ö`, `ü`, `ß`), capitalization, and special characters.
+- **🇩🇪 German Language & Full Diacritics Support:** High-accuracy multilingual models (`PP-OCRv6_small_rec`) supporting 50 languages with flawless recognition of German umlauts (`ä`, `ö`, `ü`, `ß`), capitalization, and special characters.
 - **🏎️ Optimized Hybrid Pipeline:** Text detection and angle classification execute on the GPU; text recognition runs with tuned multi-core CPU threading (`intra_op_num_threads=4`) to circumvent RDNA3 kernel bugs while maintaining blistering throughput.
 - **🔍 Production Observability:** Full correlation ID propagation via `asgi-correlation-id` (`X-Correlation-ID`) across HTTP headers and structured access logs.
 - **🤫 Quiet & Production-Grade Logging:** Built-in log filters suppress routine Kubernetes health check noise (`200 OK` on `/healthz` & `/readyz`) and eliminate low-level C++ MIOpen stderr kernel-lookup warnings.
