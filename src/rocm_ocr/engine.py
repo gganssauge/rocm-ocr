@@ -116,6 +116,28 @@ def _collect_model_dirs(model_dir: Path) -> list[Path]:
     return [d for d in dirs if d.exists()]
 
 
+LATIN_DICT_FILENAME = "latin_dict.txt"
+PPOCR_V6_DICT_FILENAME = "ppocrv6_dict.txt"
+
+
+def _resolve_dict_path(dirs: list[Path], rec_model_path: str) -> str | None:
+    """Find matching dictionary file for the selected recognition model."""
+    rec_model = rec_model_path.lower()
+    if "latin" in rec_model or "pp-ocrv3" in rec_model:
+        dict_candidates = [LATIN_DICT_FILENAME, "dict.txt"]
+        bundled_fallback = Path(__file__).parent / "resources" / LATIN_DICT_FILENAME
+    else:
+        dict_candidates = [PPOCR_V6_DICT_FILENAME, LATIN_DICT_FILENAME, "dict.txt"]
+        bundled_fallback = Path(__file__).parent / "resources" / PPOCR_V6_DICT_FILENAME
+
+    found = _find_in_dirs(dirs, dict_candidates)
+    if found:
+        return found
+    if bundled_fallback.is_file():
+        return str(bundled_fallback)
+    return None
+
+
 def _resolve_model_kwargs(
     model_dir: Path,
     rec_model_path: Path | None = None,
@@ -153,19 +175,9 @@ def _resolve_model_kwargs(
                 kwargs[key] = found
 
     if "rec_keys_path" not in kwargs and "rec_model_path" in kwargs:
-        rec_model = kwargs.get("rec_model_path", "").lower()
-        if "latin" in rec_model or "pp-ocrv3" in rec_model:
-            dict_candidates = ["latin_dict.txt", "dict.txt"]
-            bundled_fallback = Path(__file__).parent / "resources" / "latin_dict.txt"
-        else:
-            dict_candidates = ["ppocrv6_dict.txt", "latin_dict.txt", "dict.txt"]
-            bundled_fallback = Path(__file__).parent / "resources" / "ppocrv6_dict.txt"
-
-        found_dict = _find_in_dirs(dirs, dict_candidates)
-        if found_dict:
-            kwargs["rec_keys_path"] = found_dict
-        elif bundled_fallback.is_file():
-            kwargs["rec_keys_path"] = str(bundled_fallback)
+        dict_path = _resolve_dict_path(dirs, kwargs["rec_model_path"])
+        if dict_path:
+            kwargs["rec_keys_path"] = dict_path
     return kwargs
 
 
