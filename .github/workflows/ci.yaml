@@ -71,7 +71,7 @@ jobs:
 
       - name: Run Tests with Coverage
         run: |
-          uv run --locked --no-build pytest --cov=rocm_ocr --cov-report=xml --cov-report=term-missing tests/test_api.py tests/test_concurrency.py tests/test_config.py tests/test_engine.py tests/test_middleware.py tests/test_parser.py
+          uv run --locked --no-build pytest --cov=rocm_ocr --cov-report=xml --cov-report=term-missing tests/test_api.py tests/test_concurrency.py tests/test_config.py tests/test_engine.py tests/test_middleware.py tests/test_parser.py tests/test_update_docker_digests.py
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
