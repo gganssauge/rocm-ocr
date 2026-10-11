@@ -178,9 +178,11 @@ jobs:
 
       - name: Push Docker image to GHCR
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          for tag in ${{ steps.meta.outputs.tags }}; do
-            docker push "$tag"
+          for tag in ${TAGS}; do
+            docker push "${tag}"
           done
 
   automerge:
