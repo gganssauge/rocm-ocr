@@ -253,4 +253,6 @@ Die GitHub Actions Pipeline (`.github/workflows/ci.yaml`) umfasst:
 - **Test & SonarCloud Analysis:** Linting (Ruff), Typisierung (`ty check`), Pytest mit XML-Coverage-Report und automatische SonarCloud Quality Gate Überprüfung.
 - **Fast-Path Pfad-Erkennung:** Änderungen, die ausschließlich Dokumentation oder Metadaten betreffen (`docs/**`, `*.md`, `renovate.json`, `sonar-project.properties`), überspringen den zeitaufwendigen Docker-Build.
 - **Docker Build & Trivy Scan:** Container-relevante Änderungen bauen das Image und prüfen es auf ungefixte HIGH/CRITICAL-Schwachstellen.
+- **GHCR Registry Push:** Nach erfolgreichem Trivy Quality Gate wird das gebaute Docker Image auf dem Default-Branch (`main`) mit `latest`, Git-Commit-SHA und Release-Tags automatisch nach `ghcr.io` gepusht.
+- **Manuelle CI-Auslösung:** Die Pipeline kann per `workflow_dispatch` (Web-UI oder GitHub CLI) manuell getriggert werden; auf dem Default-Branch wird dabei der Container-Build und Push unabhängig vom Pfadfilter ausgeführt.
 - **Automerge:** PRs mit dem Label `automerge` werden nach erfolgreicher Quality-Gate-Prüfung automatisch gesquasht und gemerged.
