@@ -84,6 +84,27 @@ def _find_candidate_file(directory: Path, candidates: list[str]) -> str | None:
     return None
 
 
+def _find_in_dirs(dirs: list[Path], candidates: list[str]) -> str | None:
+    """Find candidate file across a list of directories in order."""
+    for d in dirs:
+        found = (
+            _find_candidate_file(d, candidates) if d.is_file() or d.exists() else None
+        )
+        if found:
+            return found
+    return None
+
+
+def _collect_model_dirs(model_dir: Path) -> list[Path]:
+    """Return directories to inspect for models."""
+    dirs = [model_dir]
+    if model_dir == Path("/models") and not model_dir.exists():
+        local_models = Path("models")
+        if local_models.exists():
+            dirs.append(local_models)
+    return [d for d in dirs if d.exists()]
+
+
 def _resolve_model_kwargs(
     model_dir: Path,
     rec_model_path: Path | None = None,
@@ -96,38 +117,22 @@ def _resolve_model_kwargs(
     if rec_keys_path and rec_keys_path.is_file():
         kwargs["rec_keys_path"] = str(rec_keys_path)
 
-    dirs_to_check = [model_dir]
-    if model_dir == Path("/models") and not model_dir.exists():
-        local_models = Path("models")
-        if local_models.exists():
-            dirs_to_check.append(local_models)
+    dirs = _collect_model_dirs(model_dir)
 
-    for check_dir in dirs_to_check:
-        if not check_dir.exists():
-            continue
-        if "det_model_path" not in kwargs:
-            det = _find_candidate_file(
-                check_dir, ["ch_PP-OCRv4_det_infer.onnx", "det.onnx"]
-            )
-            if det:
-                kwargs["det_model_path"] = det
-        if "cls_model_path" not in kwargs:
-            cls = _find_candidate_file(
-                check_dir, ["ch_ppocr_mobile_v2.0_cls_infer.onnx", "cls.onnx"]
-            )
-            if cls:
-                kwargs["cls_model_path"] = cls
-        if "rec_model_path" not in kwargs:
-            rec = _find_candidate_file(
-                check_dir,
-                ["latin_PP-OCRv3_rec_infer.onnx", "rec_latin.onnx", "rec.onnx"],
-            )
-            if rec:
-                kwargs["rec_model_path"] = rec
-        if "rec_keys_path" not in kwargs:
-            keys = _find_candidate_file(check_dir, ["latin_dict.txt", "dict.txt"])
-            if keys:
-                kwargs["rec_keys_path"] = keys
+    lookup_map = [
+        ("det_model_path", ["ch_PP-OCRv4_det_infer.onnx", "det.onnx"]),
+        ("cls_model_path", ["ch_ppocr_mobile_v2.0_cls_infer.onnx", "cls.onnx"]),
+        (
+            "rec_model_path",
+            ["latin_PP-OCRv3_rec_infer.onnx", "rec_latin.onnx", "rec.onnx"],
+        ),
+        ("rec_keys_path", ["latin_dict.txt", "dict.txt"]),
+    ]
+    for key, candidates in lookup_map:
+        if key not in kwargs:
+            found = _find_in_dirs(dirs, candidates)
+            if found:
+                kwargs[key] = found
 
     if "rec_keys_path" not in kwargs and "rec_model_path" in kwargs:
         bundled_dict = Path(__file__).parent / "resources" / "latin_dict.txt"

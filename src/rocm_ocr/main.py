@@ -63,13 +63,13 @@ async def gpu_inference_exception_handler(
     )
 
 
-@app.get("/healthz", response_model=HealthResponse)
+@app.get("/healthz")
 async def healthz() -> HealthResponse:
     """Liveness probe returning HTTP 200 when server is listening."""
     return HealthResponse(status="ok")
 
 
-@app.get("/readyz", response_model=ReadyResponse)
+@app.get("/readyz")
 async def readyz() -> ReadyResponse:
     """Readiness probe verifying engine and execution provider health."""
     engine: OcrEngine = app.state.engine
@@ -81,7 +81,7 @@ async def readyz() -> ReadyResponse:
     return ReadyResponse(status="ready", provider=engine.active_provider)
 
 
-@app.post("/ocr/v1/setup", response_model=SetupResponse)
+@app.post("/ocr/v1/setup")
 async def setup(request: SetupRequest) -> SetupResponse:
     """Dynamically adjust concurrency limits for OCR inference."""
     limiter: DynamicConcurrencyLimiter = app.state.limiter
@@ -119,7 +119,7 @@ def _process_inference_pages(
     return page_results
 
 
-@app.post("/ocr/v1/predict", response_model=PredictResponse)
+@app.post("/ocr/v1/predict")
 async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
     """Execute OCR inference on an uploaded PDF or image file."""
     file_bytes = await file.read()

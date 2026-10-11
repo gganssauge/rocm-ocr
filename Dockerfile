@@ -10,8 +10,8 @@ ENV UV_PYTHON_INSTALL_DIR=/opt/python
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    gcc \
     g++ \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv-bin /uv /uvx /bin/
@@ -21,22 +21,19 @@ RUN uv python install 3.12
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 ENV UV_LINK_MODE=copy
-RUN uv sync --frozen --no-dev --no-install-project --python 3.12
+RUN uv sync --frozen --no-dev --no-install-project --no-build --python 3.12
 
 COPY src ./src
 RUN uv sync --frozen --no-dev --python 3.12
 
-# Download Latin recognition model and prepare self-contained /models directory
-RUN mkdir -p /models && \
+# Download Latin recognition model, prepare self-contained /models, and generate stub libroctracer64.so.4
+RUN mkdir -p /models /app/lib/rocm && \
     curl -fL -o /models/latin_PP-OCRv3_rec_infer.onnx \
       "https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3/resolve/main/latin_PP-OCRv3_rec_infer.onnx" && \
     cp src/rocm_ocr/resources/latin_dict.txt /models/latin_dict.txt && \
     VENV_MODELS=$(find /app/.venv -type d -name "models" | head -n 1) && \
     cp "$VENV_MODELS/ch_PP-OCRv4_det_infer.onnx" /models/ch_PP-OCRv4_det_infer.onnx && \
-    cp "$VENV_MODELS/ch_ppocr_mobile_v2.0_cls_infer.onnx" /models/ch_ppocr_mobile_v2.0_cls_infer.onnx
-
-# Generate stub libroctracer64.so.4
-RUN mkdir -p /app/lib/rocm && \
+    cp "$VENV_MODELS/ch_ppocr_mobile_v2.0_cls_infer.onnx" /models/ch_ppocr_mobile_v2.0_cls_infer.onnx && \
     gcc -shared -fPIC -o /app/lib/rocm/libroctracer64.so.4 -Wl,-soname,libroctracer64.so.4 -x c /dev/null
 
 # --- Runtime Stage ---
@@ -45,25 +42,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    hip-utils \
+    libamdhip64-7 \
     libgl1 \
     libglib2.0-0 \
-    librocm-smi64-7 \
-    libamdhip64-7 \
+    libgomp1 \
     libhipblas3 \
     libhipfft0 \
     libmiopen1 \
-    libgomp1 \
+    librocm-smi64-7 \
     rocminfo \
-    hip-utils \
-    && rm -rf /var/lib/apt/lists/*
-
-# Link librocm_smi64.so.1 to the system installed library
-RUN mkdir -p /app/lib/rocm && \
-    ln -sf /usr/lib/x86_64-linux-gnu/librocm_smi64.so.7 /app/lib/rocm/librocm_smi64.so.1
-
-# Ensure render group exists and configure ubuntu user
-RUN (getent group render || groupadd -g 109 render) && \
-    usermod -a -G video,render ubuntu
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /app/lib/rocm \
+    && ln -sf /usr/lib/x86_64-linux-gnu/librocm_smi64.so.7 /app/lib/rocm/librocm_smi64.so.1 \
+    && (getent group render || groupadd -g 109 render) \
+    && usermod -a -G video,render ubuntu
 
 # Copy standalone Python 3.12 and application venv
 COPY --from=builder /opt/python /opt/python
