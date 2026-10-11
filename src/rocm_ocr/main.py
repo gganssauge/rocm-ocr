@@ -3,11 +3,14 @@
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from scalar_fastapi import get_scalar_api_reference
 
 from rocm_ocr.concurrency import DynamicConcurrencyLimiter
 from rocm_ocr.config import settings
@@ -24,6 +27,9 @@ from rocm_ocr.models import (
 )
 from rocm_ocr.parser import UnsupportedFormatError, parse_document
 
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -38,8 +44,52 @@ app = FastAPI(
     title="ROCm OCR Microservice",
     description="High-performance OCR inference accelerated by AMD ROCm",
     version="0.1.0",
+    docs_url=None,
+    redoc_url=None,
     lifespan=lifespan,
 )
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/scalar", include_in_schema=False)
+async def scalar_html() -> HTMLResponse:
+    """Serve interactive Scalar API documentation (air-gapped if assets present)."""
+    has_local_js = (STATIC_DIR / "scalar.js").is_file()
+    has_local_icon = (STATIC_DIR / "favicon.png").is_file()
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title="ROCm OCR Microservice - API Documentation",
+        scalar_js_url=(
+            "/static/scalar.js"
+            if has_local_js
+            else "https://cdn.jsdelivr.net/npm/@scalar/api-reference"
+        ),
+        scalar_favicon_url=(
+            "/static/favicon.png"
+            if has_local_icon
+            else "https://fastapi.tiangolo.com/img/favicon.png"
+        ),
+        with_default_fonts=False,
+        telemetry=False,
+        custom_css=(
+            ":root { "
+            "--scalar-font: system-ui, -apple-system, BlinkMacSystemFont, "
+            "'Segoe UI', Roboto, Helvetica, Arial, sans-serif; "
+            "--scalar-font-code: ui-monospace, SFMono-Regular, Menlo, Monaco, "
+            "Consolas, monospace; "
+            "}"
+        ),
+    )
+
+
+@app.get("/docs", include_in_schema=False)
+async def redirect_docs() -> RedirectResponse:
+    """Redirect /docs to the self-contained /scalar API documentation."""
+    return RedirectResponse(
+        url="/scalar", status_code=status.HTTP_307_TEMPORARY_REDIRECT
+    )
+
 
 app.add_middleware(
     CorrelationIdMiddleware,

@@ -26,10 +26,22 @@ RUN uv sync --frozen --no-dev --no-install-project --no-build --python 3.12
 COPY src ./src
 RUN uv sync --frozen --no-dev --python 3.12
 
-# Download Latin recognition model, prepare self-contained /models, and generate stub libroctracer64.so.4
+# Download offline Scalar assets with cryptographic digest verification
+ADD --checksum=sha256:62c34a0dda38945864011ebaf6e7fa7812a332429120d18922b34d01c4f7ccc8 \
+    https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.73.1/dist/browser/standalone.js \
+    /app/src/rocm_ocr/static/scalar.js
+
+ADD --checksum=sha256:d16f72cf5a2773eba499cc7f3db1923c6f5f73de990f739e3a05806aafec15b7 \
+    https://fastapi.tiangolo.com/img/favicon.png \
+    /app/src/rocm_ocr/static/favicon.png
+
+# Download Latin recognition model with cryptographic digest verification
+ADD --checksum=sha256:4fd81948e80f385afc2a9410a51904b70b6ff6dae9e26c2fc54c4bc52d4124d6 \
+    https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3/resolve/f6567a4a5d5ed30129b5ff7ffe5b226cd2678644/latin_PP-OCRv3_rec_infer.onnx \
+    /models/latin_PP-OCRv3_rec_infer.onnx
+
+# Prepare self-contained /models and generate stub libroctracer64.so.4
 RUN mkdir -p /models /app/lib/rocm && \
-    curl -fL -o /models/latin_PP-OCRv3_rec_infer.onnx \
-      "https://huggingface.co/breezedeus/cnocr-ppocr-latin_PP-OCRv3/resolve/main/latin_PP-OCRv3_rec_infer.onnx" && \
     cp src/rocm_ocr/resources/latin_dict.txt /models/latin_dict.txt && \
     VENV_MODELS=$(find /app/.venv -type d -name "models" | head -n 1) && \
     cp "$VENV_MODELS/ch_PP-OCRv4_det_infer.onnx" /models/ch_PP-OCRv4_det_infer.onnx && \
@@ -63,7 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/python /opt/python
 COPY --from=builder --chown=ubuntu:ubuntu /app/.venv /app/.venv
 COPY --from=builder /app/lib/rocm/libroctracer64.so.4 /app/lib/rocm/libroctracer64.so.4
-COPY --chown=ubuntu:ubuntu src /app/src
+COPY --from=builder --chown=ubuntu:ubuntu /app/src /app/src
 COPY --from=builder --chown=ubuntu:ubuntu /models /models
 
 WORKDIR /app

@@ -205,6 +205,13 @@ Führt die Texterkennung auf einem hochgeladenen Dokument oder Bild durch.
   - `422 Unprocessable Entity`: Fehlender Multipart-Parameter `file`.
   - `503 Service Unavailable`: Hardware-/Treiberfehler der GPU (inkl. detailliertem JSON-Error).
 
+### 4.5 `GET /scalar` & `GET /docs`
+
+Interaktive API-Dokumentation basierend auf Scalar (`scalar-fastapi`).
+
+- **Air-Gapped & Offline-Fähig:** Im Docker-Image werden die statischen Frontend-Assets (`scalar.js`, `favicon.png`) via BuildKit `ADD --checksum=sha256:...` zur Build-Zeit kryptografisch verifiziert heruntergeladen. Externe CDN-Aufrufe, externe Schriftarten oder Telemetriedienste entfallen vollständig.
+- **`GET /docs`:** Leitet mit HTTP 307 automatisch auf `/scalar` weiter.
+
 ---
 
 ## 5. Lokale Entwicklung & Qualitätssicherung
@@ -222,6 +229,20 @@ uv run pytest
 # Pre-Commit-Prüfungen manuell diagnostizieren (bei Hook-Fehlern)
 uv run prek run --all-files
 ```
+
+### 5.1 Dockerfile-Asset-Wartung (`update_docker_digests.py`)
+
+Um die Versionen und kryptografischen SHA-256 Prüfsummen der externen `ADD`-Instruktionen im `Dockerfile` (Scalar Frontend-Bundle, Favicon, Hugging Face OCR-Modell) einfach und wartbar zu halten, steht das Skript [`scripts/update_docker_digests.py`](../scripts/update_docker_digests.py) bereit:
+
+```bash
+# Prüfen, ob alle Digests und Upstream-Versionen aktuell sind (Exit-Code 1 bei Abweichungen)
+uv run python scripts/update_docker_digests.py --check
+
+# Dockerfile automatisch mit den neuesten Versionen und berechneten Prüfsummen aktualisieren
+uv run python scripts/update_docker_digests.py
+```
+
+Das Skript fragt Upstream-Metadaten ab (u. a. `x-jsd-version` von jsdelivr und `x-repo-commit` von Hugging Face), streamt die Artefakte, ermittelt deren SHA-256 Prüfsumme und aktualisiert die entsprechenden `ADD --checksum=sha256:...`-Blöcke deklarativ im `Dockerfile`.
 
 ---
 
