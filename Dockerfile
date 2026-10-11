@@ -24,7 +24,7 @@ ENV UV_LINK_MODE=copy
 RUN uv sync --frozen --no-dev --no-install-project --no-build --python 3.12
 
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-build --python 3.12
+RUN uv sync --frozen --no-dev --python 3.12
 
 # Download Latin recognition model, prepare self-contained /models, and generate stub libroctracer64.so.4
 RUN mkdir -p /models /app/lib/rocm && \
