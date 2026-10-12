@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 from asgi_correlation_id import CorrelationIdMiddleware
-from fastapi import FastAPI, File, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from scalar_fastapi import get_scalar_api_reference
@@ -26,6 +26,7 @@ from rocm_ocr.models import (
     SetupResponse,
 )
 from rocm_ocr.parser import UnsupportedFormatError, parse_document
+from rocm_ocr.sandwich import generate_sandwich_pdf
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -187,4 +188,41 @@ async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
         execution_provider=engine.active_provider,
         inference_time_ms=elapsed_ms,
         pages=pages,
+    )
+
+
+@app.post("/ocr/v1/sandwich")
+async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
+    """Execute OCR inference and inject invisible text layer to create sandwich PDF."""
+    file_bytes = await file.read()
+    filename = file.filename or ""
+    is_pdf = file_bytes.startswith(b"%PDF") or filename.lower().endswith(".pdf")
+    if not is_pdf:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sandwich PDF generation requires a PDF input file",
+        )
+
+    limiter: DynamicConcurrencyLimiter = app.state.limiter
+    engine: OcrEngine = app.state.engine
+
+    start_time = time.perf_counter()
+    async with limiter:
+        pages = _process_inference_pages(engine, file_bytes, filename)
+        sandwich_bytes = generate_sandwich_pdf(file_bytes, pages)
+    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
+
+    total_chars = sum(len(b.text) for p in pages for b in p.boxes)
+
+    headers = {
+        "X-Inference-Time-Ms": str(elapsed_ms),
+        "X-Execution-Provider": engine.active_provider,
+        "X-Total-Pages": str(len(pages)),
+        "X-Extracted-Chars": str(total_chars),
+    }
+
+    return Response(
+        content=sandwich_bytes,
+        media_type="application/pdf",
+        headers=headers,
     )

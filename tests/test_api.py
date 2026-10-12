@@ -185,3 +185,52 @@ async def test_static_asset_serving(client: AsyncClient) -> None:
         assert response.text == "static-content-ok"
     finally:
         test_file.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_sandwich_endpoint_success(client: AsyncClient, monkeypatch) -> None:
+    """Verify /ocr/v1/sandwich returns a valid PDF with invisible text layer."""
+    import pymupdf
+
+    from rocm_ocr.models import BoundingBox
+
+    def _create_minimal_pdf() -> bytes:
+        doc = pymupdf.open()
+        page = doc.new_page(width=595.0, height=842.0)
+        page.draw_rect(pymupdf.Rect(50, 50, 100, 100), color=(0, 0, 0))
+        buf = io.BytesIO()
+        doc.save(buf)
+        doc.close()
+        return buf.getvalue()
+
+    mock_boxes = [
+        BoundingBox(
+            text="Test Injected Title", bbox=[50.0, 50.0, 200.0, 70.0], confidence=0.99
+        )
+    ]
+    monkeypatch.setattr(
+        app.state.engine, "infer_page", MagicMock(return_value=mock_boxes)
+    )
+
+    pdf_bytes = _create_minimal_pdf()
+    files = {"file": ("test_doc.pdf", pdf_bytes, "application/pdf")}
+    response = await client.post("/ocr/v1/sandwich", files=files)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "X-Extracted-Chars" in response.headers
+    assert response.headers["X-Total-Pages"] == "1"
+
+    res_doc = pymupdf.open(stream=response.content, filetype="pdf")
+    assert "Test Injected Title" in res_doc[0].get_text()
+    res_doc.close()
+
+
+@pytest.mark.asyncio
+async def test_sandwich_endpoint_rejects_non_pdf(client: AsyncClient) -> None:
+    """Verify /ocr/v1/sandwich rejects non-PDF payloads with 400 Bad Request."""
+    img_bytes = _create_test_image_bytes()
+    files = {"file": ("test_doc.png", img_bytes, "image/png")}
+    response = await client.post("/ocr/v1/sandwich", files=files)
+    assert response.status_code == 400
+    assert "requires a PDF" in response.json()["detail"]
