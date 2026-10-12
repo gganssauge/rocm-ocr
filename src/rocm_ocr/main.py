@@ -1,6 +1,7 @@
 """FastAPI application for the ROCm OCR microservice."""
 
 import os
+import secrets
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -8,8 +9,18 @@ from pathlib import Path
 from typing import Annotated
 
 from asgi_correlation_id import CorrelationIdMiddleware
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Response,
+    Security,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from scalar_fastapi import get_scalar_api_reference
 
@@ -136,7 +147,31 @@ async def readyz() -> ReadyResponse:
     return ReadyResponse(status="ready", provider=engine.active_provider)
 
 
-@app.post("/ocr/v1/setup")
+security = HTTPBearer(auto_error=False)
+
+
+def verify_api_key(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Security(security)],
+) -> None:
+    """Verify Bearer API key against configured settings.api_key.
+
+    If settings.api_key is empty/unset, authentication is disabled (e.g. dev/test).
+    If set, requests missing a matching Bearer token receive HTTP 401 Unauthorized.
+    """
+    if not settings.api_key:
+        return
+
+    if not credentials or not secrets.compare_digest(
+        credentials.credentials, settings.api_key
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@app.post("/ocr/v1/setup", dependencies=[Depends(verify_api_key)])
 async def setup(request: SetupRequest) -> SetupResponse:
     """Dynamically adjust concurrency limits for OCR inference."""
     limiter: DynamicConcurrencyLimiter = app.state.limiter
@@ -174,7 +209,7 @@ def _process_inference_pages(
     return page_results
 
 
-@app.post("/ocr/v1/predict")
+@app.post("/ocr/v1/predict", dependencies=[Depends(verify_api_key)])
 async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
     """Execute OCR inference on an uploaded PDF or image file."""
     file_bytes = await file.read()
@@ -195,7 +230,7 @@ async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
     )
 
 
-@app.post("/ocr/v1/sandwich")
+@app.post("/ocr/v1/sandwich", dependencies=[Depends(verify_api_key)])
 async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
     """Execute OCR inference and inject invisible text layer to create sandwich PDF."""
     file_bytes = await file.read()

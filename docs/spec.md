@@ -25,6 +25,23 @@
 
 The service exposes HTTP endpoints via FastAPI.
 
+### 2.0 Authentication (Bearer Token)
+
+The service supports optional pre-shared key (PSK) authentication via standard HTTP Bearer tokens.
+
+- **Enforcement:** If `API_KEY` is set to a non-empty string, all operational endpoints under `/ocr/v1/*` (`/setup`, `/predict`, `/sandwich`) require `Authorization: Bearer <API_KEY>`.
+- **Timing Protection:** Token comparison uses constant-time validation (`secrets.compare_digest`).
+- **Unauthenticated Probes:** Health probes (`/healthz`, `/readyz`) and API documentation (`/scalar`, `/docs`, `/openapi.json`) remain accessible without credentials.
+- **Unauthorized Response (HTTP 401):**
+
+  ```json
+  {
+    "detail": "Invalid or missing API key"
+  }
+  ```
+
+- **Development/Testing:** If `API_KEY` is unset or empty, authentication is disabled.
+
 ### 2.1 `POST /ocr/v1/setup`
 
 Dynamically adjusts runtime parameters such as maximum concurrency.
@@ -131,6 +148,7 @@ Executes OCR inference on an uploaded PDF and returns a searchable sandwich PDF 
 | `OCR_MODEL_DIR` | `/models` | Path containing PP-OCRv4 ONNX model files. |
 | `LOG_LEVEL` | `INFO` | Standard logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `PORT` | `8000` | HTTP listening port. |
+| `API_KEY` | `""` | Optional pre-shared Bearer token protecting `/ocr/v1/*` endpoints. |
 
 ---
 

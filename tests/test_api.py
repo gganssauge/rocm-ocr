@@ -246,3 +246,62 @@ async def test_openapi_version_matches_app_version(client: AsyncClient) -> None:
     data = response.json()
     assert data["info"]["version"] == APP_VERSION
     assert APP_VERSION == "0.2.1"
+
+
+@pytest.mark.asyncio
+async def test_auth_disabled_by_default(client: AsyncClient) -> None:
+    """Verify endpoints accept requests without auth when api_key is empty."""
+    from rocm_ocr.config import settings
+
+    assert settings.api_key == ""
+    response = await client.post("/ocr/v1/setup", json={"concurrency": 2})
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_auth_enforced_when_api_key_configured(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify 401 returned when api_key is configured and token is invalid."""
+    from rocm_ocr.config import settings
+
+    monkeypatch.setattr(settings, "api_key", "super-secret-token")
+
+    # Missing token
+    res_missing = await client.post("/ocr/v1/setup", json={"concurrency": 2})
+    assert res_missing.status_code == 401
+    assert res_missing.json()["detail"] == "Invalid or missing API key"
+    assert res_missing.headers.get("www-authenticate") == "Bearer"
+
+    # Wrong token
+    res_wrong = await client.post(
+        "/ocr/v1/setup",
+        json={"concurrency": 2},
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert res_wrong.status_code == 401
+
+    # Valid token
+    res_valid = await client.post(
+        "/ocr/v1/setup",
+        json={"concurrency": 2},
+        headers={"Authorization": "Bearer super-secret-token"},
+    )
+    assert res_valid.status_code == 200
+    assert res_valid.json()["status"] == "updated"
+
+
+@pytest.mark.asyncio
+async def test_health_endpoints_bypass_auth_when_api_key_configured(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify /healthz and /readyz remain accessible without auth for probes."""
+    from rocm_ocr.config import settings
+
+    monkeypatch.setattr(settings, "api_key", "super-secret-token")
+
+    res_health = await client.get("/healthz")
+    assert res_health.status_code == 200
+
+    res_ready = await client.get("/readyz")
+    assert res_ready.status_code == 200

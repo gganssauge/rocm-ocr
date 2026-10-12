@@ -80,6 +80,7 @@ docker build -t rocm-ocr:local .
 - `MIOPEN_FIND_MODE="2"`: Aktiviert Fast-Heuristic Search für dynamische Shapes.
 - `OCR_CONCURRENCY="1"`: Maximale gleichzeitige Inferenzanfragen.
 - `OCR_MODEL_DIR="/models"`: Pfad zu den ONNX-Modelldateien.
+- `API_KEY=""`: Optionaler Pre-Shared Bearer-Token zum Schutz der `/ocr/v1/*`-Endpunkte.
 
 ### 3.2 Kubernetes / k3s Deployment
 
