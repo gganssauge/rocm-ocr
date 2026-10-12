@@ -130,6 +130,7 @@ When running, interactive OpenAPI/Swagger documentation is available at:
 | `GET` | `/readyz` | Kubernetes readiness probe. Verifies GPU provider and engine readiness. |
 | `POST` | `/ocr/v1/setup` | Dynamically configures maximum concurrent inference tasks. |
 | `POST` | `/ocr/v1/predict` | Executes OCR text extraction on uploaded PDF or raster images. |
+| `POST` | `/ocr/v1/sandwich` | Executes OCR and injects an invisible text layer to produce a searchable PDF. |
 
 ### Prediction Example (`curl`)
 

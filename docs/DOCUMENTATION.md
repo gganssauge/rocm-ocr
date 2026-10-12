@@ -35,6 +35,7 @@ src/rocm_ocr/
 ├── logging.py      # HealthCheckFilter & CorrelationAccessFormatter
 ├── models.py       # Pydantic Schemas (Request/Response API-Verträge)
 ├── parser.py       # PyMuPDF/Pillow Parsing & 144 DPI Skalierung
+├── sandwich.py     # PyMuPDF Sandwich-PDF Generator (invisible text layer)
 └── main.py         # FastAPI App, Lifespan, Middleware & Routen
 ```
 
