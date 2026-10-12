@@ -140,6 +140,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -193,6 +194,41 @@ jobs:
           for tag in ${TAGS}; do
             docker push "${tag}"
           done
+
+      - name: Trigger Flux Image Update Webhook
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        run: |
+          echo "Fordere GitHub OIDC-Token für notification-controller an..."
+          ID_TOKEN=$(curl -sLS "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=notification-controller" \
+            -H "User-Agent: actions/oidc-client" \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" | jq -r '.value')
+
+          echo "Triggering ImageRepository scan..."
+          RESPONSE_REPO=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://flux-notifications.gorki120.de/hook/021f0a71b00371dad51592e169d5e26d4a699f46b681ba82a305303477f8d07f" \
+            -H "Authorization: Bearer $ID_TOKEN")
+          HTTP_CODE_REPO=$(echo "$RESPONSE_REPO" | grep "HTTP_STATUS:" | cut -d':' -f2)
+          if [[ "$HTTP_CODE_REPO" -ne 200 ]]; then
+            echo "Fehler beim Triggern des ImageRepository Scans (HTTP $HTTP_CODE_REPO):"
+            echo "$RESPONSE_REPO"
+            exit 1
+          fi
+
+          echo "Waiting 10s for ImagePolicy update..."
+          sleep 10
+
+          echo "Triggering ImageUpdateAutomation..."
+          RESPONSE_AUTO=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
+            "https://flux-notifications.gorki120.de/hook/880c98dc9c02b9faaccd607d35b0a0a45bfb23e84ad2665611fcba9dd735b244" \
+            -H "Authorization: Bearer $ID_TOKEN")
+          HTTP_CODE_AUTO=$(echo "$RESPONSE_AUTO" | grep "HTTP_STATUS:" | cut -d':' -f2)
+          if [[ "$HTTP_CODE_AUTO" -ne 200 ]]; then
+            echo "Fehler beim Triggern der ImageUpdateAutomation (HTTP $HTTP_CODE_AUTO):"
+            echo "$RESPONSE_AUTO"
+            exit 1
+          fi
+
+          echo "Flux Image Update Webhooks erfolgreich ausgelöst."
 
   automerge:
     name: Auto-merge PR (Label 'automerge')
