@@ -245,7 +245,7 @@ async def test_openapi_version_matches_app_version(client: AsyncClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["info"]["version"] == APP_VERSION
-    assert APP_VERSION == "0.2.1"
+    assert APP_VERSION == "0.2.2"
 
 
 @pytest.mark.asyncio
