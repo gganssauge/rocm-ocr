@@ -93,12 +93,29 @@ Executes OCR inference on an uploaded document or image.
   }
   ```
 
-### 2.3 `GET /healthz` & `GET /readyz`
+### 2.3 `POST /ocr/v1/sandwich`
+
+Executes OCR inference on an uploaded PDF and returns a searchable sandwich PDF with an invisible text layer (`render_mode=3`).
+
+- **Request:**
+  - Content-Type: `multipart/form-data`
+  - Body: `file` (Binary content of PDF)
+- **Response (HTTP 200 - Success):**
+  - Content-Type: `application/pdf`
+  - Headers:
+    - `X-Inference-Time-Ms`: Total inference duration in milliseconds
+    - `X-Execution-Provider`: Active execution provider (`ROCMExecutionProvider`)
+    - `X-Total-Pages`: Number of processed pages
+    - `X-Extracted-Chars`: Total number of recognized characters
+- **Response (HTTP 400 - Bad Request):**
+  - Returned if the uploaded file is not a valid PDF document.
+
+### 2.4 `GET /healthz` & `GET /readyz`
 
 - `GET /healthz`: Returns HTTP 200 as soon as the HTTP server is listening.
 - `GET /readyz`: Verifies that ONNX Runtime and the configured Execution Provider (`ROCMExecutionProvider` or fallback) are loaded and capable of executing inference.
 
-### 2.4 `GET /scalar` & `GET /docs`
+### 2.5 `GET /scalar` & `GET /docs`
 
 - `GET /scalar`: Interactive API documentation powered by Scalar (`scalar-fastapi`). In container deployments, frontend assets (`scalar.js`, `favicon.png`) are pre-baked at build time to provide fully air-gapped operation without external CDN dependencies.
 - `GET /docs`: Redirects (HTTP 307) to `/scalar`.

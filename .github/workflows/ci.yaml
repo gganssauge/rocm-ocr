@@ -4,10 +4,19 @@ on:
   push:
     branches:
       - main
+    paths-ignore: &paths-ignore
+      - '**.md'
+      - 'docs/**'
+      - '.scratch/**'
+      - '.gitignore'
+      - 'LICENSE'
+      - '.pre-commit-config.yaml'
+      - '.markdownlint-cli2.yaml'
   pull_request:
     types: [opened, synchronize, reopened, labeled]
     branches:
       - main
+    paths-ignore: *paths-ignore
   workflow_dispatch:
 
 permissions:
