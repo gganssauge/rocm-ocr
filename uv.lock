@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 
 [manifest]
@@ -533,26 +533,26 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "asgi-correlation-id", specifier = ">=5.0.1" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "onnxruntime-rocm", specifier = ">=1.20.0" },
-    { name = "pillow", specifier = ">=10.0.0" },
-    { name = "pydantic", specifier = ">=2.8.0" },
-    { name = "pydantic-settings", specifier = ">=2.4.0" },
-    { name = "pymupdf", specifier = ">=1.24.0" },
-    { name = "python-multipart", specifier = ">=0.0.9" },
-    { name = "rapidocr-onnxruntime", specifier = ">=1.4.0" },
-    { name = "scalar-fastapi", specifier = ">=1.9.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+    { name = "asgi-correlation-id" },
+    { name = "fastapi" },
+    { name = "onnxruntime-rocm" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pymupdf" },
+    { name = "python-multipart" },
+    { name = "rapidocr-onnxruntime" },
+    { name = "scalar-fastapi" },
+    { name = "uvicorn", extras = ["standard"] },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "pytest", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24.0" },
-    { name = "pytest-cov", specifier = ">=5.0.0" },
-    { name = "ruff", specifier = ">=0.6.0" },
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
 ]
 
 [[package]]
