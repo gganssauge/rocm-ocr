@@ -56,7 +56,9 @@ RUN mkdir -p /models /app/lib/rocm && \
 
 # --- Runtime Stage ---
 FROM ubuntu:rolling AS runtime
-ENV DEBIAN_FRONTEND=noninteractive
+ARG APP_VERSION="0.2.1"
+ENV DEBIAN_FRONTEND=noninteractive \
+    APP_VERSION="${APP_VERSION}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
