@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     ocr_rec_keys_path: Path | None = None
     log_level: str = "INFO"
     port: int = 8000
+    api_key: str = ""
 
     def apply_rocm_env_overrides(self) -> None:
         """Set required environment overrides for ROCm RDNA3 consumer GPUs."""
