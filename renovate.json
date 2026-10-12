@@ -58,12 +58,11 @@
       ]
     },
     {
-      "description": "Pin Python to 3.12 strictly due to prebuilt onnxruntime-rocm wheel availability",
+      "description": "Do not pin Python version requirement (requires-python constraint managed manually)",
       "matchPackageNames": [
         "python"
       ],
-      "allowedVersions": "<3.13",
-      "automerge": false
+      "enabled": false
     },
     {
       "description": "Group GitHub Actions updates",

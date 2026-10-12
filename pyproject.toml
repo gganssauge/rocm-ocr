@@ -3,7 +3,7 @@ name = "rocm-ocr"
 version = "0.1.0"
 description = "High-performance standalone OCR microservice accelerated by AMD ROCm GPUs"
 readme = "README.md"
-requires-python = ">=3.12, <3.13"
+requires-python = ">3.11, <3.13"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
