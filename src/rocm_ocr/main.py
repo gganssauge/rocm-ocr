@@ -1,5 +1,6 @@
 """FastAPI application for the ROCm OCR microservice."""
 
+import os
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from scalar_fastapi import get_scalar_api_reference
 
+from rocm_ocr import __version__
 from rocm_ocr.concurrency import DynamicConcurrencyLimiter
 from rocm_ocr.config import settings
 from rocm_ocr.engine import GpuInferenceError, OcrEngine
@@ -41,10 +43,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
 
+APP_VERSION = os.getenv("APP_VERSION", __version__).lstrip("v")
+
 app = FastAPI(
     title="ROCm OCR Microservice",
     description="High-performance OCR inference accelerated by AMD ROCm",
-    version="0.1.0",
+    version=APP_VERSION,
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,

@@ -234,3 +234,15 @@ async def test_sandwich_endpoint_rejects_non_pdf(client: AsyncClient) -> None:
     response = await client.post("/ocr/v1/sandwich", files=files)
     assert response.status_code == 400
     assert "requires a PDF" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_openapi_version_matches_app_version(client: AsyncClient) -> None:
+    """Verify OpenAPI schema reports the correct application version."""
+    from rocm_ocr.main import APP_VERSION
+
+    response = await client.get("/openapi.json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["info"]["version"] == APP_VERSION
+    assert APP_VERSION == "0.2.1"

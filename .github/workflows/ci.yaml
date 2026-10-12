@@ -163,6 +163,8 @@ jobs:
         with:
           context: .
           load: true
+          build-args: |
+            APP_VERSION=${{ github.ref_type == 'tag' && github.ref_name || '0.2.1' }}
           tags: |
             rocm-ocr:${{ github.sha }}
             ${{ steps.meta.outputs.tags }}
