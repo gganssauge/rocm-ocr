@@ -5,7 +5,7 @@ description = "High-performance standalone OCR microservice accelerated by AMD R
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "Gottfried Ganßauge", email = "ganssauge@gmx.de" },
+    { name = "Gottfried Ganßauge", email = "ganssauge@gorki120.de" },
 ]
 requires-python = ">=3.12, <3.13"
 dependencies = [
