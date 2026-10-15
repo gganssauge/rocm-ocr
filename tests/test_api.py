@@ -305,3 +305,40 @@ async def test_health_endpoints_bypass_auth_when_api_key_configured(
 
     res_ready = await client.get("/readyz")
     assert res_ready.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_healthz_responsive_during_inference(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify /healthz probe responds immediately even while OCR inference
+    is executing.
+    """
+    import asyncio
+    import time
+
+    def slow_inference(*args, **kwargs):
+        time.sleep(0.3)
+        return []
+
+    monkeypatch.setattr("rocm_ocr.main._process_inference_pages", slow_inference)
+
+    pdf_bytes = b"%PDF-1.4 sample content"
+    files = {"file": ("test.pdf", pdf_bytes, "application/pdf")}
+
+    # Launch slow predict in the background
+    predict_task = asyncio.create_task(client.post("/ocr/v1/predict", files=files))
+
+    # Wait briefly to ensure inference thread is running
+    await asyncio.sleep(0.05)
+
+    # Health check should respond immediately while predict is still running
+    health_start = time.perf_counter()
+    health_res = await client.get("/healthz")
+    health_elapsed = time.perf_counter() - health_start
+
+    assert health_res.status_code == 200
+    assert health_elapsed < 0.2  # Responded without waiting for the 0.3s sleep
+
+    predict_res = await predict_task
+    assert predict_res.status_code == 200

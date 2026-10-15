@@ -72,6 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmiopen1 \
     librocm-smi64-7 \
     rocminfo \
+    && dpkg -r --force-depends libcurl4t64 \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/pebble \
     && mkdir -p /app/lib/rocm \
