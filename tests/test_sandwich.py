@@ -109,3 +109,201 @@ def test_generate_sandwich_pdf_empty_boxes():
     ]
     result_bytes = generate_sandwich_pdf(pdf_bytes, pages)
     assert len(result_bytes) > 0
+
+
+def test_is_born_digital_pdf_detection():
+    """Verify is_born_digital_pdf accurately identifies digital PDFs vs scans."""
+    from rocm_ocr.sandwich import is_born_digital_pdf
+
+    # 1. Born digital PDF with native text
+    doc_digital = pymupdf.open()
+    page = doc_digital.new_page(width=595.0, height=842.0)
+    page.insert_text(
+        pymupdf.Point(50, 100),
+        "Dies ist ein digitales Dokument mit ausreichend Text, um als "
+        "born-digital eingestuft zu werden.",
+        fontsize=12,
+    )
+    buf_digital = io.BytesIO()
+    doc_digital.save(buf_digital)
+    doc_digital.close()
+
+    is_bd, chars, pages = is_born_digital_pdf(buf_digital.getvalue())
+    assert is_bd is True
+    assert chars > 50
+    assert pages == 1
+
+    # 2. Scanned PDF (image covering full page)
+    doc_scan = pymupdf.open()
+    page_scan = doc_scan.new_page(width=595.0, height=842.0)
+    # Insert full page image
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 100, 100), False)
+    page_scan.insert_image(page_scan.rect, pixmap=pix)
+    buf_scan = io.BytesIO()
+    doc_scan.save(buf_scan)
+    doc_scan.close()
+
+    is_bd_scan, _, _ = is_born_digital_pdf(buf_scan.getvalue())
+    assert is_bd_scan is False
+
+
+def test_generate_sandwich_pdf_strips_old_text():
+    """Verify generate_sandwich_pdf removes pre-existing text before adding
+    new OCR layer.
+    """
+    # Create PDF with old text
+    doc = pymupdf.open()
+    page = doc.new_page(width=595.0, height=842.0)
+    page.insert_text(pymupdf.Point(50, 100), "Alte schlechte OCR", fontsize=12)
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+
+    pages = [
+        PageResult(
+            page_number=0,
+            width=595.0,
+            height=842.0,
+            boxes=[
+                BoundingBox(
+                    text="Neue ROCm-OCR",
+                    bbox=[50.0, 100.0, 200.0, 120.0],
+                    confidence=0.99,
+                )
+            ],
+        )
+    ]
+
+    sandwich_bytes = generate_sandwich_pdf(buf.getvalue(), pages)
+    res_doc = pymupdf.open(stream=sandwich_bytes, filetype="pdf")
+    res_text = res_doc[0].get_text()
+    res_doc.close()
+
+    assert "Alte schlechte OCR" not in res_text
+    assert "Neue ROCm-OCR" in res_text
+
+
+def test_is_born_digital_empty_pdf():
+    """Verify empty PDF returns (False, 0, 0)."""
+    from rocm_ocr.sandwich import is_born_digital_pdf
+
+    empty_pdf_bytes = (
+        b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        b"2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\n"
+        b"xref\n0 3\n0000000000 65535 f \n0000000009 00000 n \n0000000068 00000 n \n"
+        b"trailer\n<< /Root 1 0 R /Size 3 >>\nstartxref\n120\n%%EOF\n"
+    )
+    is_bd, chars, pages = is_born_digital_pdf(empty_pdf_bytes)
+    assert is_bd is False
+    assert chars == 0
+    assert pages == 0
+
+
+def test_insert_ocr_box_fallback_on_invalid_font():
+    """Verify _insert_ocr_box handles invalid font without crashing."""
+    from rocm_ocr.sandwich import _insert_ocr_box
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595.0, height=842.0)
+    _insert_ocr_box(
+        page,
+        text="Test",
+        bbox=[50.0, 50.0, 100.0, 70.0],
+        fontname="nonexistent_font_fallback",
+    )
+    doc.close()
+
+
+def test_is_born_digital_mixed_multipage_pdf():
+    """Verify multi-page PDF with minority scan pages is classified as born-digital."""
+    from rocm_ocr.sandwich import is_born_digital_pdf
+
+    doc = pymupdf.open()
+    # Page 0: Digital text
+    p0 = doc.new_page(width=595.0, height=842.0)
+    p0.insert_text(
+        pymupdf.Point(50, 100),
+        "Erste Seite mit ausreichend digitalem Vektor-Text für die Erkennung.",
+        fontsize=12,
+    )
+    # Page 1: Digital text
+    p1 = doc.new_page(width=595.0, height=842.0)
+    p1.insert_text(
+        pymupdf.Point(50, 100),
+        "Zweite Seite mit weiterem ausführlichen Textinhalt im Dokument.",
+        fontsize=12,
+    )
+    # Page 2: Full-page scan image
+    p2 = doc.new_page(width=595.0, height=842.0)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 100, 100), False)
+    p2.insert_image(p2.rect, pixmap=pix)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+
+    is_bd, chars, pages = is_born_digital_pdf(buf.getvalue())
+    assert is_bd is True
+    assert pages == 3
+    assert chars >= 100
+
+
+def test_generate_sandwich_skips_unmapped_pages():
+    """Verify pages not in OCR results are preserved without modifications."""
+    doc = pymupdf.open()
+    doc.new_page(width=595.0, height=842.0)  # Page 0
+    doc.new_page(width=595.0, height=842.0)  # Page 1
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+
+    # Only provide boxes for Page 1
+    pages = [
+        PageResult(
+            page_number=1,
+            width=595.0,
+            height=842.0,
+            boxes=[
+                BoundingBox(
+                    text="Seite 2 Text",
+                    bbox=[50.0, 100.0, 200.0, 120.0],
+                    confidence=0.99,
+                )
+            ],
+        )
+    ]
+    res_bytes = generate_sandwich_pdf(buf.getvalue(), pages)
+    res_doc = pymupdf.open(stream=res_bytes, filetype="pdf")
+    assert len(res_doc) == 2
+    assert res_doc[0].get_text().strip() == ""
+    assert "Seite 2 Text" in res_doc[1].get_text()
+    res_doc.close()
+
+
+def test_generate_sandwich_rotated_90_morph():
+    """Verify morph scaling works on 90-degree rotated pages."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595.0, height=842.0)
+    page.set_rotation(90)
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+
+    pages = [
+        PageResult(
+            page_number=0,
+            width=842.0,
+            height=595.0,
+            boxes=[
+                BoundingBox(
+                    text="Rotated 90 Deg Scaled Text",
+                    bbox=[50.0, 100.0, 300.0, 120.0],
+                    confidence=0.99,
+                )
+            ],
+        )
+    ]
+    res_bytes = generate_sandwich_pdf(buf.getvalue(), pages)
+    res_doc = pymupdf.open(stream=res_bytes, filetype="pdf")
+    assert "Rotated 90 Deg Scaled Text" in res_doc[0].get_text()
+    res_doc.close()

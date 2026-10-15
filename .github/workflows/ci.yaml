@@ -81,7 +81,7 @@ jobs:
 
       - name: Run Tests with Coverage
         run: |
-          uv run --locked --no-build pytest --cov=rocm_ocr --cov-report=xml --cov-report=term-missing tests/test_api.py tests/test_concurrency.py tests/test_config.py tests/test_engine.py tests/test_middleware.py tests/test_parser.py tests/test_update_docker_digests.py
+          uv run --locked --no-build pytest --cov=rocm_ocr --cov-report=xml --cov-report=term-missing tests/test_api.py tests/test_concurrency.py tests/test_config.py tests/test_engine.py tests/test_middleware.py tests/test_parser.py tests/test_sandwich.py tests/test_update_docker_digests.py
 
       - name: SonarQube Cloud Scan
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
