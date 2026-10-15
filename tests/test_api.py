@@ -237,6 +237,34 @@ async def test_sandwich_endpoint_rejects_non_pdf(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sandwich_endpoint_born_digital_passthrough(client: AsyncClient) -> None:
+    """Verify /ocr/v1/sandwich returns born-digital PDF untouched with
+    X-Born-Digital header.
+    """
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595.0, height=842.0)
+    page.insert_text(
+        pymupdf.Point(50, 100),
+        "Präziser digitaler Text im Dokument für Born-Digital-Erkennung.",
+        fontsize=12,
+    )
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+    pdf_bytes = buf.getvalue()
+
+    files = {"file": ("digital.pdf", pdf_bytes, "application/pdf")}
+    response = await client.post("/ocr/v1/sandwich", files=files)
+
+    assert response.status_code == 200
+    assert response.headers.get("x-born-digital") == "true"
+    assert response.headers.get("x-skipped-reason") == "born-digital"
+    assert response.content == pdf_bytes
+
+
+@pytest.mark.asyncio
 async def test_openapi_version_matches_app_version(client: AsyncClient) -> None:
     """Verify OpenAPI schema reports the correct application version."""
     from rocm_ocr.main import APP_VERSION
