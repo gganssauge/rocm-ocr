@@ -97,7 +97,7 @@ def _compute_morph(
         if rot in (90, 270):
             return (pt_morph, pymupdf.Matrix(1.0, scale_x))
         return (pt_morph, pymupdf.Matrix(scale_x, 1.0))
-    except (RuntimeError, ValueError):
+    except Exception:
         return None
 
 
