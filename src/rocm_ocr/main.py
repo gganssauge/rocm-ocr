@@ -1,5 +1,6 @@
 """FastAPI application for the ROCm OCR microservice."""
 
+import asyncio
 import os
 import secrets
 import time
@@ -220,7 +221,9 @@ async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
 
     start_time = time.perf_counter()
     async with limiter:
-        pages = _process_inference_pages(engine, file_bytes, filename)
+        pages = await asyncio.to_thread(
+            _process_inference_pages, engine, file_bytes, filename
+        )
     elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
 
     return PredictResponse(
@@ -247,8 +250,12 @@ async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
 
     start_time = time.perf_counter()
     async with limiter:
-        pages = _process_inference_pages(engine, file_bytes, filename)
-        sandwich_bytes = generate_sandwich_pdf(file_bytes, pages)
+        pages = await asyncio.to_thread(
+            _process_inference_pages, engine, file_bytes, filename
+        )
+        sandwich_bytes = await asyncio.to_thread(
+            generate_sandwich_pdf, file_bytes, pages
+        )
     elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
 
     total_chars = sum(len(b.text) for p in pages for b in p.boxes)
