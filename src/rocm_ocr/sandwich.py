@@ -21,6 +21,25 @@ from rocm_ocr.models import PageResult
 DEFAULT_STANDARD_FONT: Final[str] = "helv"
 
 
+def _page_has_fullpage_scan(page: pymupdf.Page) -> bool:
+    """Check if page contains a raster image covering >= 70% of its area."""
+    page_area = page.rect.width * page.rect.height
+    for img in page.get_images():
+        for r in page.get_image_rects(img[0]):
+            if (r.width * r.height) >= 0.70 * page_area:
+                return True
+    return False
+
+
+def _count_visible_chars(page: pymupdf.Page) -> int:
+    """Count visible text characters on a page (excluding invisible OCR)."""
+    return sum(
+        len(span.get("chars", ()))
+        for span in page.get_texttrace()
+        if span.get("type") != 3
+    )
+
+
 def is_born_digital_pdf(pdf_bytes: bytes) -> tuple[bool, int, int]:
     """Check if a PDF document is born-digital with native vector text.
 
@@ -36,26 +55,8 @@ def is_born_digital_pdf(pdf_bytes: bytes) -> tuple[bool, int, int]:
         if total_pages == 0:
             return False, 0, 0
 
-        total_visible = 0
-        fullpage_scan_pages = 0
-
-        for page in doc:
-            page_area = page.rect.width * page.rect.height
-            images = page.get_images()
-            has_fullpage_image = False
-            for img in images:
-                for r in page.get_image_rects(img[0]):
-                    if (r.width * r.height) >= 0.70 * page_area:
-                        has_fullpage_image = True
-                        break
-                if has_fullpage_image:
-                    break
-            if has_fullpage_image:
-                fullpage_scan_pages += 1
-
-            for span in page.get_texttrace():
-                if span.get("type") != 3:  # visible text
-                    total_visible += len(span.get("chars", ()))
+        total_visible = sum(_count_visible_chars(page) for page in doc)
+        fullpage_scan_pages = sum(1 for page in doc if _page_has_fullpage_scan(page))
 
         # Born-digital: has significant visible text and no or minority
         # fullpage scan pages
@@ -126,15 +127,25 @@ def _insert_ocr_box(
     except Exception:
         pass
 
-    page.insert_text(
-        pt_morph if rot != 0 else point,
-        clean_text,
-        fontsize=fontsize,
-        render_mode=3,
-        fontname=fontname,
-        rotate=rot,
-        morph=morph,
-    )
+    try:
+        page.insert_text(
+            pt_morph if rot != 0 else point,
+            clean_text,
+            fontsize=fontsize,
+            render_mode=3,
+            fontname=fontname,
+            rotate=rot,
+            morph=morph,
+        )
+    except Exception:
+        page.insert_text(
+            pt_morph if rot != 0 else point,
+            clean_text,
+            fontsize=fontsize,
+            render_mode=3,
+            fontname=DEFAULT_STANDARD_FONT,
+            rotate=rot,
+        )
 
 
 def generate_sandwich_pdf(
