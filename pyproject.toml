@@ -3,6 +3,10 @@ name = "rocm-ocr"
 version = "0.2.2"
 description = "High-performance standalone OCR microservice accelerated by AMD ROCm GPUs"
 readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Gottfried Ganßauge", email = "ganssauge@gorki120.de" },
+]
 requires-python = ">=3.12, <3.13"
 dependencies = [
     "asgi-correlation-id",
@@ -57,5 +61,25 @@ select = [
 ignore = []
 
 [tool.pytest.ini_options]
+minversion = "6"
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+log_level = "INFO"
+xfail_strict = true
+filterwarnings = ["error"]
+
+[tool.ty]
+
+[tool.repo-review]
+ignore = [
+    "GH200",  # Maintained by Dependabot (Renovate is used instead)
+    "PC140",  # Uses a type checker (managed via local ty hook)
+    "PC160",  # Uses a spell checker
+    "PC170",  # Uses PyGrep hooks (no rST files)
+    "PC901", "PC902", "PC903",  # Pre-commit CI messages (GitHub Actions CI is used)
+    "PP004",  # Does not upper cap Python requires (ROCm binary wheels require Python 3.12)
+    "PY007",  # Task runner (nox/tox/pixi; uv is used directly)
+    "RF002",  # Target version (Ruff reads project.requires-python)
+    "SEC001", # zizmor GHA checker
+]
