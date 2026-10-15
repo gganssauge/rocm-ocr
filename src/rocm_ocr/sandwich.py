@@ -77,6 +77,30 @@ def _strip_existing_text(page: pymupdf.Page) -> None:
         page.apply_redactions(images=0)
 
 
+def _compute_morph(
+    fontname: str,
+    clean_text: str,
+    fontsize: float,
+    box_width: float,
+    pt_morph: pymupdf.Point,
+    rot: int,
+) -> tuple[pymupdf.Point, pymupdf.Matrix] | None:
+    """Compute horizontal scaling factor to eliminate character drift."""
+    try:
+        f = pymupdf.Font(fontname)
+        natural_w = f.text_length(clean_text, fontsize=fontsize)
+        if natural_w <= 0:
+            return None
+        scale_x = box_width / natural_w
+        if not (0.5 <= scale_x <= 2.5):
+            return None
+        if rot in (90, 270):
+            return (pt_morph, pymupdf.Matrix(1.0, scale_x))
+        return (pt_morph, pymupdf.Matrix(scale_x, 1.0))
+    except (RuntimeError, ValueError):
+        return None
+
+
 def _insert_ocr_box(
     page: pymupdf.Page,
     text: str,
@@ -93,13 +117,10 @@ def _insert_ocr_box(
         fontname: Standard PDF font name (default: 'helv').
     """
     clean_text = text.strip()
-    if not clean_text or len(bbox) != 4:
+    if not clean_text or len(bbox) != 4 or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
         return
 
     x0, y0, x1, y1 = bbox
-    if x1 <= x0 or y1 <= y0:
-        return
-
     box_height = y1 - y0
     box_width = x1 - x0
     fontsize = max(3.0, box_height * 0.85)
@@ -107,29 +128,12 @@ def _insert_ocr_box(
     point = pymupdf.Point(x0, baseline_y)
 
     rot = page.rotation
-    pt_morph = point
-    if rot != 0:
-        pt_morph = pt_morph * page.derotation_matrix
-
-    # Compute horizontal scaling factor to eliminate character drift across words/lines
-    morph = None
-    try:
-        f = pymupdf.Font(fontname)
-        natural_w = f.text_length(clean_text, fontsize=fontsize)
-        if natural_w > 0:
-            scale_x = box_width / natural_w
-            # Clamp to sensible ratio (0.5 to 2.5) to avoid extreme distortion
-            if 0.5 <= scale_x <= 2.5:
-                if rot in (90, 270):
-                    morph = (pt_morph, pymupdf.Matrix(1.0, scale_x))
-                else:
-                    morph = (pt_morph, pymupdf.Matrix(scale_x, 1.0))
-    except Exception:
-        pass
+    pt_morph = point * page.derotation_matrix if rot != 0 else point
+    morph = _compute_morph(fontname, clean_text, fontsize, box_width, pt_morph, rot)
 
     try:
         page.insert_text(
-            pt_morph if rot != 0 else point,
+            pt_morph,
             clean_text,
             fontsize=fontsize,
             render_mode=3,
@@ -139,7 +143,7 @@ def _insert_ocr_box(
         )
     except Exception:
         page.insert_text(
-            pt_morph if rot != 0 else point,
+            pt_morph,
             clean_text,
             fontsize=fontsize,
             render_mode=3,
