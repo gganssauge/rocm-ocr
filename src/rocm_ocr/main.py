@@ -40,7 +40,7 @@ from rocm_ocr.models import (
     SetupResponse,
 )
 from rocm_ocr.parser import UnsupportedFormatError, parse_document
-from rocm_ocr.sandwich import generate_sandwich_pdf
+from rocm_ocr.sandwich import generate_sandwich_pdf, is_born_digital_pdf
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -243,6 +243,23 @@ async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Sandwich PDF generation requires a PDF input file",
+        )
+
+    # Pass through born-digital documents untouched with X-Born-Digital headers
+    is_bd, total_chars, page_count = is_born_digital_pdf(file_bytes)
+    if is_bd:
+        headers = {
+            "X-Inference-Time-Ms": "0.0",
+            "X-Execution-Provider": "Native",
+            "X-Total-Pages": str(page_count),
+            "X-Extracted-Chars": str(total_chars),
+            "X-Born-Digital": "true",
+            "X-Skipped-Reason": "born-digital",
+        }
+        return Response(
+            content=file_bytes,
+            media_type="application/pdf",
+            headers=headers,
         )
 
     limiter: DynamicConcurrencyLimiter = app.state.limiter
