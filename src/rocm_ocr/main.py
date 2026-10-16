@@ -1,6 +1,7 @@
 """FastAPI application for the ROCm OCR microservice."""
 
 import asyncio
+import logging
 import os
 import secrets
 import time
@@ -41,6 +42,8 @@ from rocm_ocr.models import (
 )
 from rocm_ocr.parser import UnsupportedFormatError, parse_document
 from rocm_ocr.sandwich import generate_sandwich_pdf, is_born_digital_pdf
+
+logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
@@ -115,16 +118,32 @@ app.add_middleware(
 )
 
 
+def _fatal_exit(code: int = 1) -> None:
+    """Terminate the process abruptly to trigger container runtime auto-restart."""
+    os._exit(code)
+
+
 @app.exception_handler(GpuInferenceError)
 async def gpu_inference_exception_handler(
     request: object, exc: GpuInferenceError
 ) -> JSONResponse:
-    """Return transparent 503 payload when GPU or driver error occurs."""
+    """Return transparent 503 payload on GPU/driver error and trigger restart."""
     content = ErrorResponse(
         detail=exc.detail,
         provider_attempted=exc.provider_attempted,
         error_message=exc.error_message,
     ).model_dump()
+
+    async def _terminate_process() -> None:
+        await asyncio.sleep(0.5)
+        logger.critical(
+            "Fatal GPU/MIOpen error encountered: %s. Terminating process to restart.",
+            exc.error_message,
+        )
+        _fatal_exit(1)
+
+    asyncio.create_task(_terminate_process())
+
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=content
     )
