@@ -118,6 +118,9 @@ app.add_middleware(
 )
 
 
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
 def _fatal_exit(code: int = 1) -> None:
     """Terminate the process abruptly to trigger container runtime auto-restart."""
     os._exit(code)
@@ -142,7 +145,9 @@ async def gpu_inference_exception_handler(
         )
         _fatal_exit(1)
 
-    asyncio.create_task(_terminate_process())
+    task = asyncio.create_task(_terminate_process())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=content
