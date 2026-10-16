@@ -1,5 +1,6 @@
 """Integration and API endpoint tests for the ROCm OCR microservice."""
 
+import asyncio
 import io
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -123,6 +124,9 @@ async def test_predict_endpoint_gpu_error_fail_fast(
     )
     monkeypatch.setattr(app.state, "engine", mock_engine)
 
+    mock_exit = MagicMock()
+    monkeypatch.setattr("rocm_ocr.main._fatal_exit", mock_exit)
+
     img_bytes = _create_test_image_bytes()
     files = {"file": ("test.png", img_bytes, "image/png")}
 
@@ -133,6 +137,8 @@ async def test_predict_endpoint_gpu_error_fail_fast(
         "provider_attempted": "ROCMExecutionProvider",
         "error_message": "HIP out of memory error on device gfx1101",
     }
+    await asyncio.sleep(0.6)
+    mock_exit.assert_called_once_with(1)
 
 
 @pytest.mark.asyncio

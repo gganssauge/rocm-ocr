@@ -244,6 +244,7 @@ class OcrEngine:
             with _silence_c_stderr():
                 raw_results, _ = self._engine(img_np)
         except Exception as exc:
+            self._is_ready = False
             if self._active_provider == ROCM_PROVIDER or "HIP" in str(exc):
                 raise GpuInferenceError(
                     detail="ROCm GPU inference failed",
