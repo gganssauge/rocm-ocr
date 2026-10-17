@@ -1,0 +1,51 @@
+name: "Bug Report"
+description: "File a bug report for rocm-ocr"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "What happened?"
+      description: "A clear and concise description of what the bug is."
+      placeholder: "Tell us what you see!"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Steps to reproduce the behavior."
+      placeholder: |
+        1. Run OCR request with image/document `...`
+        2. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected Behavior"
+      description: "A clear and concise description of what you expected to happen."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Relevant Logs or Output"
+      description: "Please copy and paste any relevant logs or traceback."
+      render: shell
+  - type: dropdown
+    id: gpu
+    attributes:
+      label: "GPU Architecture"
+      options:
+        - "AMD Radeon (gfx1100 / RDNA 3)"
+        - "AMD Radeon (gfx1030 / RDNA 2)"
+        - "CPU fallback"
+        - "Other"
+    validations:
+      required: true
