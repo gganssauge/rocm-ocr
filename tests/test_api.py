@@ -22,7 +22,7 @@ def _create_test_image_bytes() -> bytes:
 
 
 @pytest.fixture
-async def client():
+async def client(native_rapid: MagicMock):
     transport = ASGITransport(app=app)
     async with (
         AsyncClient(transport=transport, base_url="http://test") as test_client,

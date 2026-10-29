@@ -1,7 +1,31 @@
 """Dynamic concurrency limiter for managing concurrent inference tasks."""
 
 import asyncio
+from collections.abc import Callable
 from types import TracebackType
+
+
+async def run_in_thread[**P, T](
+    function: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
+) -> T:
+    """Wait for native work to finish before propagating caller cancellation.
+
+    Keeping this await inside a limiter context retains the permit until the
+    thread exits. Worker exceptions propagate normally, including after cancellation.
+    """
+    worker = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            if worker.cancelled():
+                raise
+            cancelled = True
+    result = worker.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
 
 
 class DynamicConcurrencyLimiter:

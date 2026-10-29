@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -11,7 +12,7 @@ from rocm_ocr.main import app
 
 
 @pytest.fixture
-async def client():
+async def client(native_rapid: MagicMock):
     """Create async test client with lifespan context."""
     transport = ASGITransport(app=app)
     async with (

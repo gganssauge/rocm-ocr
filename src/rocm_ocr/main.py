@@ -6,7 +6,7 @@ import os
 import secrets
 import time
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from typing import Annotated
 
@@ -27,10 +27,11 @@ from fastapi.staticfiles import StaticFiles
 from scalar_fastapi import get_scalar_api_reference
 
 from rocm_ocr import __version__
-from rocm_ocr.concurrency import DynamicConcurrencyLimiter
+from rocm_ocr.concurrency import DynamicConcurrencyLimiter, run_in_thread
 from rocm_ocr.config import settings
 from rocm_ocr.engine import GpuInferenceError, OcrEngine
 from rocm_ocr.logging import setup_logging
+from rocm_ocr.middleware import RequestSizeLimitMiddleware
 from rocm_ocr.models import (
     ErrorResponse,
     HealthResponse,
@@ -40,7 +41,11 @@ from rocm_ocr.models import (
     SetupRequest,
     SetupResponse,
 )
-from rocm_ocr.parser import UnsupportedFormatError, parse_document
+from rocm_ocr.parser import (
+    DocumentTooLargeError,
+    UnsupportedFormatError,
+    iter_document_pages,
+)
 from rocm_ocr.sandwich import generate_sandwich_pdf, is_born_digital_pdf
 
 logger = logging.getLogger(__name__)
@@ -111,6 +116,7 @@ async def redirect_docs() -> RedirectResponse:
     )
 
 
+app.add_middleware(RequestSizeLimitMiddleware)
 app.add_middleware(
     CorrelationIdMiddleware,
     header_name="X-Correlation-ID",
@@ -124,6 +130,22 @@ _background_tasks: set[asyncio.Task[None]] = set()
 def _fatal_exit(code: int = 1) -> None:
     """Terminate the process abruptly to trigger container runtime auto-restart."""
     os._exit(code)
+
+
+@app.exception_handler(DocumentTooLargeError)
+async def document_limit_exception_handler(
+    request: object, exc: DocumentTooLargeError
+) -> JSONResponse:
+    """Return HTTP 413 when document page or pixel budgets are exceeded."""
+    return JSONResponse(status_code=413, content={"detail": str(exc)})
+
+
+@app.exception_handler(UnsupportedFormatError)
+async def document_format_exception_handler(
+    request: object, exc: UnsupportedFormatError
+) -> JSONResponse:
+    """Return HTTP 400 for malformed or unsupported uploaded documents."""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 @app.exception_handler(GpuInferenceError)
@@ -209,35 +231,36 @@ async def setup(request: SetupRequest) -> SetupResponse:
 
 
 def _process_inference_pages(
-    engine: OcrEngine, file_bytes: bytes, filename: str
+    engine: OcrEngine, file_bytes: bytes, filename: str, *, ocr_only: bool = False
 ) -> list[PageResult]:
     """Parse document pages and run OCR inference on each rendered page."""
-    try:
-        rendered_pages = parse_document(file_bytes, filename=filename)
-    except UnsupportedFormatError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-
     page_results: list[PageResult] = []
-    for page in rendered_pages:
-        boxes = engine.infer_page(page)
-        page_results.append(
-            PageResult(
-                page_number=page.page_number,
-                width=page.width,
-                height=page.height,
-                boxes=boxes,
-            )
-        )
+    with closing(
+        iter_document_pages(file_bytes, filename=filename, ocr_only=ocr_only)
+    ) as pages:
+        for page in pages:
+            try:
+                boxes = engine.infer_page(page)
+                page_results.append(
+                    PageResult(
+                        page_number=page.page_number,
+                        width=page.width,
+                        height=page.height,
+                        boxes=boxes,
+                    )
+                )
+            finally:
+                page.image.close()
     return page_results
 
 
-@app.post("/ocr/v1/predict", dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/ocr/v1/predict",
+    dependencies=[Depends(verify_api_key)],
+    responses={413: {"description": "Document or upload exceeds resource limits"}},
+)
 async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
     """Execute OCR inference on an uploaded PDF or image file."""
-    file_bytes = await file.read()
     filename = file.filename or ""
 
     limiter: DynamicConcurrencyLimiter = app.state.limiter
@@ -245,7 +268,8 @@ async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
 
     start_time = time.perf_counter()
     async with limiter:
-        pages = await asyncio.to_thread(
+        file_bytes = await file.read()
+        pages = await run_in_thread(
             _process_inference_pages, engine, file_bytes, filename
         )
     elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
@@ -257,54 +281,54 @@ async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
     )
 
 
-@app.post("/ocr/v1/sandwich", dependencies=[Depends(verify_api_key)])
+@app.post(
+    "/ocr/v1/sandwich",
+    dependencies=[Depends(verify_api_key)],
+    responses={413: {"description": "Document or upload exceeds resource limits"}},
+)
 async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
     """Execute OCR inference and inject invisible text layer to create sandwich PDF."""
-    file_bytes = await file.read()
     filename = file.filename or ""
-    is_pdf = file_bytes.startswith(b"%PDF") or filename.lower().endswith(".pdf")
-    if not is_pdf:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sandwich PDF generation requires a PDF input file",
-        )
-
-    # Pass through born-digital documents untouched with X-Born-Digital headers
-    is_bd, total_chars, page_count = is_born_digital_pdf(file_bytes)
-    if is_bd:
-        headers = {
-            "X-Inference-Time-Ms": "0.0",
-            "X-Execution-Provider": "Native",
-            "X-Total-Pages": str(page_count),
-            "X-Extracted-Chars": str(total_chars),
-            "X-Born-Digital": "true",
-            "X-Skipped-Reason": "born-digital",
-        }
-        return Response(
-            content=file_bytes,
-            media_type="application/pdf",
-            headers=headers,
-        )
-
     limiter: DynamicConcurrencyLimiter = app.state.limiter
     engine: OcrEngine = app.state.engine
 
     start_time = time.perf_counter()
     async with limiter:
-        pages = await asyncio.to_thread(
-            _process_inference_pages, engine, file_bytes, filename
+        file_bytes = await file.read()
+        is_pdf = file_bytes.startswith(b"%PDF") or filename.lower().endswith(".pdf")
+        if not is_pdf:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sandwich PDF generation requires a PDF input file",
+            )
+        is_bd, total_chars, page_count = await run_in_thread(
+            is_born_digital_pdf, file_bytes
         )
-        sandwich_bytes = await asyncio.to_thread(
-            generate_sandwich_pdf, file_bytes, pages
+        if is_bd:
+            return Response(
+                content=file_bytes,
+                media_type="application/pdf",
+                headers={
+                    "X-Inference-Time-Ms": "0.0",
+                    "X-Execution-Provider": "Native",
+                    "X-Total-Pages": str(page_count),
+                    "X-Extracted-Chars": str(total_chars),
+                    "X-Born-Digital": "true",
+                    "X-Skipped-Reason": "born-digital",
+                },
+            )
+        pages = await run_in_thread(
+            _process_inference_pages, engine, file_bytes, filename, ocr_only=True
         )
+        sandwich_bytes = await run_in_thread(generate_sandwich_pdf, file_bytes, pages)
     elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
 
-    total_chars = sum(len(b.text) for p in pages for b in p.boxes)
+    total_chars += sum(len(b.text) for p in pages for b in p.boxes)
 
     headers = {
         "X-Inference-Time-Ms": str(elapsed_ms),
         "X-Execution-Provider": engine.active_provider,
-        "X-Total-Pages": str(len(pages)),
+        "X-Total-Pages": str(page_count),
         "X-Extracted-Chars": str(total_chars),
     }
 

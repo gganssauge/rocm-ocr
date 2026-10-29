@@ -20,7 +20,7 @@ Built on top of **FastAPI**, **RapidOCR**, and **ONNX Runtime ROCm**, it deliver
 - **🇩🇪 German Language & Full Diacritics Support:** High-accuracy multilingual models (`PP-OCRv6_small_rec`) supporting 50 languages with flawless recognition of German umlauts (`ä`, `ö`, `ü`, `ß`), capitalization, and special characters.
 - **🏎️ Optimized Hybrid Pipeline:** Text detection and angle classification execute on the GPU; text recognition runs with tuned multi-core CPU threading (`intra_op_num_threads=4`) to circumvent RDNA3 kernel bugs while maintaining blistering throughput.
 - **🔍 Production Observability:** Full correlation ID propagation via `asgi-correlation-id` (`X-Correlation-ID`) across HTTP headers and structured access logs.
-- **🤫 Quiet & Production-Grade Logging:** Built-in log filters suppress routine Kubernetes health check noise (`200 OK` on `/healthz` & `/readyz`) and eliminate low-level C++ MIOpen stderr kernel-lookup warnings.
+- **🤫 Focused & Transparent Logging:** Built-in log filters suppress routine Kubernetes health check noise (`200 OK` on `/healthz` & `/readyz`); native MIOpen and GPU diagnostics remain visible without process-wide stderr redirection.
 - **🛡️ Fail-Fast Reliability:** Hardware or GPU driver exceptions transparently return `HTTP 503 Service Unavailable` with diagnostic error payloads — strictly avoiding silent CPU fallbacks that degrade cluster performance.
 - **🔄 Dynamic Concurrency Tuning:** Runtime adjustable inference slots via `/ocr/v1/setup` to balance GPU memory between microservices.
 
@@ -72,7 +72,9 @@ cd rocm-ocr
 uv sync --all-groups
 
 # Run local development server
-uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000 --reload
+bash scripts/setup_rocm_compat.sh
+LD_LIBRARY_PATH="$PWD/lib/rocm${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Run comprehensive test suite
 uv run pytest
@@ -94,13 +96,20 @@ docker run --rm -d \
   --device=/dev/dri \
   --group-add video \
   --group-add render \
-  --security-opt seccomp=unconfined \
+  --security-opt no-new-privileges \
+  --cap-drop ALL \
   rocm-ocr:local
 ```
 
 ### 3. Kubernetes / k3s GitOps Deployment
 
 Production manifests are structured with Kustomize under [`deploy/k8s/`](deploy/k8s/):
+
+The standard pod is nonprivileged, runs as UID/GID 1000, drops all capabilities
+and uses a read-only root filesystem with writable temporary/cache volumes.
+**GPU access under this hardened Kubernetes configuration is not yet verified.**
+The runtime must grant device access independently of hostPath mounts; otherwise
+readiness returns HTTP 503. Validate on the target cluster before rollout.
 
 ```bash
 # Apply namespace, service, and deployment
@@ -131,6 +140,11 @@ When running, interactive OpenAPI/Swagger documentation is available at:
 | `POST` | `/ocr/v1/setup` | Dynamically configures maximum concurrent inference tasks. |
 | `POST` | `/ocr/v1/predict` | Executes OCR text extraction on uploaded PDF or raster images. |
 | `POST` | `/ocr/v1/sandwich` | Executes OCR and injects an invisible text layer to produce a searchable PDF. |
+
+Uploads are limited to **50 MiB per HTTP request body** (including multipart
+framing), **100 PDF pages**, and **20 million rendered pixels per page or raster
+image**. Exceeding these limits returns HTTP 413, including for born-digital PDFs.
+See the [resource-limit contract](docs/spec.md#26-document-resource-limits).
 
 ### Prediction Example (`curl`)
 

@@ -91,6 +91,7 @@ COPY --from=builder --chown=ubuntu:ubuntu /models /models
 WORKDIR /app
 
 ENV PATH="/app/.venv/bin:$PATH" \
+    HOME="/home/ubuntu" \
     PYTHONPATH="/app/src" \
     PYTHONUNBUFFERED="1" \
     LD_LIBRARY_PATH="/app/lib/rocm" \

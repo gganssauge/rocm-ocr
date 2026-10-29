@@ -42,6 +42,18 @@ Therefore, the service requires an automated, self-contained container build and
      - `/dev/kfd` (character device)
      - `/dev/dri` (host directory)
    - The pod security context specifies `supplementalGroups: [44, 109]` matching the host's `video` and `render` groups.
+   - The standard pod runs nonprivileged as UID/GID 1000, drops all capabilities,
+     forbids privilege escalation, uses RuntimeDefault seccomp, and disables
+     service-account token automounting.
+   - A read-only root filesystem is paired with writable `emptyDir` mounts at
+     `/tmp` and `/home/ubuntu` for uploads and MIOpen caches.
+   - Device access must also be granted by the runtime/device integration;
+     hostPath mounts do not bypass device-cgroup restrictions. Missing access
+     must leave the service unready (HTTP 503), never trigger automatic CPU or
+     privileged fallback.
+   - This hardened pod configuration has not been GPU-validated on the target
+     cluster. A local GPU smoke test does not certify its seccomp/device policy;
+     perform an isolated in-cluster validation before a production rollout.
    - Linux kernel AMDGPU/KFD driver performs hardware time-slicing and multiplexing between Ollama and OCR.
 
 4. **Kubernetes Resources & Manifest Layout**:

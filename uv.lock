@@ -544,7 +544,7 @@ requires-dist = [
     { name = "pillow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "pymupdf" },
+    { name = "pymupdf", specifier = ">=1.28.2" },
     { name = "python-multipart" },
     { name = "rapidocr-onnxruntime" },
     { name = "scalar-fastapi" },
