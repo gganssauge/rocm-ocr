@@ -27,20 +27,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test-and-analyze:
-    name: Test & SonarCloud Analysis
+  changes:
+    name: Detect Changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
-      checks: read
     outputs:
-      container_changed: ${{ steps.filter.outputs.container }}
+      container: ${{ steps.filter.outputs.container }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
 
       - name: Check for container-relevant changes
@@ -56,6 +54,20 @@ jobs:
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/workflows/ci.yaml'
+
+  test-and-analyze:
+    name: Test & SonarCloud Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -135,8 +147,8 @@ jobs:
 
   docker-build:
     name: Docker Build & Trivy Scan
-    needs: test-and-analyze
-    if: needs.test-and-analyze.outputs.container_changed == 'true' || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: needs.changes.outputs.container == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -172,7 +184,7 @@ jobs:
             rocm-ocr:${{ github.sha }}
             ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && 'type=gha,mode=min' || '' }}
 
       - name: Enforce Trivy Quality Gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -238,6 +250,7 @@ jobs:
   automerge:
     name: Auto-merge PR (Label 'automerge')
     needs:
+      - changes
       - test-and-analyze
       - docker-build
     if: |
