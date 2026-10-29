@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import numpy as np
@@ -8,7 +9,7 @@ from onnxruntime.capi import (
     onnxruntime_pybind11_state as ort_errors,  # ty: ignore[unresolved-import]
 )
 from rapidocr_onnxruntime import RapidOCR
-from rapidocr_onnxruntime.utils.infer_engine import ONNXRuntimeError
+from rapidocr_onnxruntime.utils.infer_engine import ONNXRuntimeError, OrtInferSession
 
 from rocm_ocr.config import Settings, settings
 from rocm_ocr.models import BoundingBox
@@ -55,6 +56,19 @@ def _require_rocm_session(session: ort.InferenceSession, stage_name: str) -> Non
         )
 
 
+class _SerializedGpuInference(OrtInferSession):
+    """Serialize calls to one GPU session while keeping its native metadata."""
+
+    def __init__(self, inference: OrtInferSession) -> None:
+        self.session = inference.session
+        self._inference = inference
+        self._lock = Lock()
+
+    def __call__(self, input_content: np.ndarray) -> np.ndarray:
+        with self._lock:
+            return self._inference(input_content)
+
+
 def create_rapidocr(**model_kwargs: str) -> RapidOCR:
     """Build the hybrid pipeline using per-instance public ORT provider APIs."""
     if ROCM_PROVIDER not in ort.get_available_providers():
@@ -86,6 +100,7 @@ def create_rapidocr(**model_kwargs: str) -> RapidOCR:
         stage.infer.session.set_providers([(ROCM_PROVIDER, rocm_options)])
         stage.infer.session.disable_fallback()
         _require_rocm_session(stage.infer.session, name)
+        stage.infer = _SerializedGpuInference(stage.infer)
     return engine
 
 

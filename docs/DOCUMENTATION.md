@@ -70,6 +70,13 @@ Ein fehlender oder fehlerhafter Provider liefert HTTP 503 statt erfolgreicher
 CPU-Inferenz. Initialisierungsfehler werden protokolliert; Healthchecks bleiben
 erreichbar. Der Benchmark verwendet dieselbe Session-Konfiguration wie der Dienst.
 
+Detektion und Klassifikation besitzen jeweils einen lokalen Lock um ihre nativen
+Inferenzaufrufe. So können parallele Seiten-Worker dieselbe GPU-Session sicher
+verwenden, ohne die gesamte Pipeline zu serialisieren. Andere GPU-Sessions,
+Rendering und CPU-Recognition bleiben parallel nutzbar. Die Locks gelten auch
+beim Readiness-Warm-up und im Benchmark, koordinieren aber keine fremden
+GPU-Prozesse wie Ollama.
+
 MIOpen schreibt native Diagnosen direkt auf stderr. Dieser prozessweite
 Dateideskriptor wird nicht mehr umgeleitet: Parallele Requests können dadurch
 weder Logs anderer Threads verschlucken noch stderr dauerhaft deaktivieren.
@@ -295,6 +302,13 @@ uv run pytest --ignore=tests/test_e2e.py
 # Pre-Commit-Prüfungen manuell diagnostizieren (bei Hook-Fehlern)
 uv run prek run --all-files
 ```
+
+Die GPU-unabhängige Engine-Regressionsprüfung simuliert nicht-reentrante native
+Sessions und prüft beide GPU-Stufen, parallele CPU-Erkennung sowie die Freigabe
+nach Fehlern. Der echte Parallelitäts-E2E-Test synchronisiert zwei OCR-Worker
+vor der Inferenz und vergleicht ihre Ergebnisse mit einer sequenziellen Referenz.
+Ein versehentlich wieder blockierender Event-Loop kann diesen Test daher nicht
+mehr nur durch nacheinander abgearbeitete Requests bestehen lassen.
 
 ### 5.1 Dockerfile-Asset-Wartung (`update_docker_digests.py`)
 
