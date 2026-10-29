@@ -132,6 +132,11 @@ When running, interactive OpenAPI/Swagger documentation is available at:
 | `POST` | `/ocr/v1/predict` | Executes OCR text extraction on uploaded PDF or raster images. |
 | `POST` | `/ocr/v1/sandwich` | Executes OCR and injects an invisible text layer to produce a searchable PDF. |
 
+Uploads are limited to **50 MiB per HTTP request body** (including multipart
+framing), **100 PDF pages**, and **20 million rendered pixels per page or raster
+image**. Exceeding these limits returns HTTP 413, including for born-digital PDFs.
+See the [resource-limit contract](docs/spec.md#26-document-resource-limits).
+
 ### Prediction Example (`curl`)
 
 ```bash

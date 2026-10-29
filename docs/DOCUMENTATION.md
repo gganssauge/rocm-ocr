@@ -20,6 +20,7 @@ Er dient als performantes OCR-Backend in Linux- und Kubernetes-Umgebungen und te
 - **Microservice-Observability:** Volle Unterstützung von `X-Correlation-ID` (`asgi-correlation-id`) zur Traceability über Servicegrenzen hinweg.
 - **Stille Logs:** Automatische Filterung routinemäßiger `200 OK`-Healthchecks (`/healthz`, `/readyz`) und C-Level-Dämpfung interner MIOpen-Solver-Meldungen.
 - **Fail-Fast & Transparenz:** Hardware- oder GPU-Fehler werden transparent mit HTTP 503 gemeldet; kein unbemerktes, teures Zurückfallen auf CPU.
+- **Dokumentgrenzen:** Maximal 50 MiB HTTP-Request-Body (inklusive Multipart-Overhead), 100 PDF-Seiten und 20 Millionen gerenderte Pixel pro Seite bzw. Rasterbild. Überschreitungen liefern HTTP 413.
 
 ---
 
@@ -59,6 +60,25 @@ Die Texterkennung gliedert sich in drei Stufen:
 ### 2.3 C-Level Stderr-Dämpfung
 
 MIOpen schreibt Kernel-Lookup-Fehlermeldungen (`Failed to load kernel source: Conv_Winograd_...`) direkt über `std::cerr` (Dateideskriptor 2). In [`engine.py`](../src/rocm_ocr/engine.py) dämpft der Context-Manager `_silence_c_stderr()` mittels `os.dup2(devnull, 2)` diese C-Level-Ausgaben während der Inferenz, ohne Python-Exceptions zu unterdrücken.
+
+### 2.4 Begrenzte Dokumentverarbeitung
+
+Die HTTP-Middleware zählt den gesamten empfangenen Request-Body, auch ohne
+`Content-Length`; ein zu großer deklarierter Body wird vor dem Multipart-Parsing
+abgewiesen. Die PDF-Grenzen werden vor Rasterisierung oder Born-Digital-Analyse
+geprüft. Sie gelten auch für Dokumente, die unverändert zurückgegeben werden.
+Das Pixelbudget bezieht sich bei PDFs auf die aufgerundeten Rastermaße bei 144 DPI.
+
+Die Inferenz rendert PDF-Seiten nacheinander und gibt das jeweilige Bild nach
+Verarbeitung frei. Dateilesen und PDF-Preflight liegen innerhalb des
+Concurrency-Limiters; die native PDF-Analyse läuft außerhalb des Event-Loops.
+Die bestehende Parser-Funktion `parse_document()` liefert weiterhin eine Liste;
+für sequenzielle Verarbeitung steht `iter_document_pages()` bereit.
+
+Zu große Dokumente liefern HTTP 413 mit einem `detail`-Feld; beschädigte PDFs
+liefern HTTP 400. Größere Dokumente müssen vom Aufrufer aufgeteilt oder verkleinert
+werden. Die Grenzen ersetzen weder Zugriffsschutz noch Begrenzungen des gesamten
+Upload-Aufkommens oder eine Isolation nativer Parser.
 
 ---
 
@@ -204,6 +224,7 @@ Führt die Texterkennung auf einem hochgeladenen Dokument oder Bild durch.
 
 - **Fehlercodes:**
   - `400 Bad Request`: Nicht unterstütztes Dateiformat oder beschädigte Datei.
+  - `413 Content Too Large`: HTTP-Body, PDF-Seitenzahl oder gerenderte Pixelzahl überschreitet die Dokumentgrenzen.
   - `422 Unprocessable Entity`: Fehlender Multipart-Parameter `file`.
   - `503 Service Unavailable`: Hardware-/Treiberfehler der GPU (inkl. detailliertem JSON-Error).
 

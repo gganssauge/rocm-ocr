@@ -16,6 +16,7 @@ from typing import Final
 import pymupdf
 
 from rocm_ocr.models import PageResult
+from rocm_ocr.parser import UnsupportedFormatError, validate_pdf_document
 
 # Standard PDF font (Base-14 Helvetica) - no external TTF files needed
 DEFAULT_STANDARD_FONT: Final[str] = "helv"
@@ -49,8 +50,12 @@ def is_born_digital_pdf(pdf_bytes: bytes) -> tuple[bool, int, int]:
     Returns:
         Tuple of (is_born_digital: bool, total_text_chars: int, page_count: int).
     """
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except (pymupdf.FileDataError, pymupdf.EmptyFileError) as exc:
+        raise UnsupportedFormatError(f"Failed to parse PDF document: {exc}") from exc
+    try:
+        validate_pdf_document(doc)
         total_pages = len(doc)
         if total_pages == 0:
             return False, 0, 0

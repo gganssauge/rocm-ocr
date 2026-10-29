@@ -137,6 +137,32 @@ Executes OCR inference on an uploaded PDF and returns a searchable sandwich PDF 
 - `GET /scalar`: Interactive API documentation powered by Scalar (`scalar-fastapi`). In container deployments, frontend assets (`scalar.js`, `favicon.png`) are pre-baked at build time to provide fully air-gapped operation without external CDN dependencies.
 - `GET /docs`: Redirects (HTTP 307) to `/scalar`.
 
+### 2.6 Document Resource Limits
+
+The following inclusive limits apply to uploaded documents:
+
+| Resource | Maximum |
+| :--- | :--- |
+| Complete HTTP request body, including all multipart fields and framing | 50 MiB (52,428,800 bytes) |
+| PDF pages | 100 |
+| Pixels per rendered PDF page or decoded raster image | 20,000,000 |
+
+- HTTP body bytes are counted as they arrive, including requests without
+  `Content-Length`. An oversized declared length is rejected before multipart parsing.
+- PDF pixel dimensions are checked at the actual rendering resolution (144 DPI),
+  rounding outwards to integer pixels. Image dimensions are checked before RGB decoding.
+- PDF limits also apply to born-digital documents passed through by `/sandwich`.
+- PDF pages are rendered and processed sequentially, not retained as a complete
+  rasterized document. Reading uploaded files into memory and the PDF preflight
+  inspection share the inference concurrency limiter.
+- PDF inspection runs outside the event loop so that health checks remain responsive.
+- Oversized input returns HTTP 413 with `{"detail": "<limit description>"}`.
+  Malformed input continues to return HTTP 400. Documents previously accepted above
+  these limits must be split or downscaled by the caller.
+
+These are per-request limits, not rate limits or sandboxing for native parsers.
+Production deployments should also restrict access and bound aggregate upload traffic.
+
 ---
 
 ## 3. Environment Variables & Defaults

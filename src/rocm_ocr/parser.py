@@ -1,6 +1,8 @@
 """Document rendering and format parsing for PDFs and raster images."""
 
 import io
+import warnings
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass
 
 import pymupdf
@@ -8,10 +10,16 @@ from PIL import Image, UnidentifiedImageError
 
 SUPPORTED_IMAGE_FORMATS = {"PNG", "JPEG", "TIFF", "WEBP"}
 PDF_RENDER_ZOOM = 2.0  # Render at 2x resolution (144 DPI) for accurate OCR
+MAX_PDF_PAGES = 100
+MAX_PAGE_PIXELS = 20_000_000
 
 
 class UnsupportedFormatError(ValueError):
     """Raised when the uploaded document format is unsupported."""
+
+
+class DocumentTooLargeError(ValueError):
+    """Raised when a document exceeds the page or rasterization budget."""
 
 
 @dataclass(frozen=True)
@@ -25,37 +33,54 @@ class RenderedPage:
     scale: float
 
 
-def _parse_pdf_pages(file_bytes: bytes) -> list[RenderedPage]:
+def validate_pdf_document(doc: pymupdf.Document) -> None:
+    """Reject PDFs exceeding the supported document resource budget."""
+    if len(doc) > MAX_PDF_PAGES:
+        raise DocumentTooLargeError("PDF exceeds the 100 page limit")
+    matrix = pymupdf.Matrix(PDF_RENDER_ZOOM, PDF_RENDER_ZOOM)
+    for page in doc:
+        rect = (page.rect * matrix).irect
+        if rect.width * rect.height > MAX_PAGE_PIXELS:
+            raise DocumentTooLargeError(
+                "Rendered PDF page exceeds the 20000000 pixel limit"
+            )
+
+
+def _parse_pdf_pages(file_bytes: bytes) -> Iterator[RenderedPage]:
     """Render each PDF page to an RGB image with scale tracking."""
-    pages: list[RenderedPage] = []
     matrix = pymupdf.Matrix(PDF_RENDER_ZOOM, PDF_RENDER_ZOOM)
     with pymupdf.open(stream=file_bytes, filetype="pdf") as doc:
+        validate_pdf_document(doc)
         for page_idx in range(len(doc)):
             page = doc[page_idx]
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            pages.append(
-                RenderedPage(
-                    page_number=page_idx,
-                    image=img,
-                    width=float(page.rect.width),
-                    height=float(page.rect.height),
-                    scale=PDF_RENDER_ZOOM,
-                )
+            yield RenderedPage(
+                page_number=page_idx,
+                image=img,
+                width=float(page.rect.width),
+                height=float(page.rect.height),
+                scale=PDF_RENDER_ZOOM,
             )
-    return pages
 
 
 def _parse_image_file(file_bytes: bytes) -> list[RenderedPage]:
     """Parse a single raster image file into a RenderedPage."""
     try:
-        with Image.open(io.BytesIO(file_bytes)) as raw_img:
+        with (
+            warnings.catch_warnings(
+                action="error", category=Image.DecompressionBombWarning
+            ),
+            Image.open(io.BytesIO(file_bytes)) as raw_img,
+        ):
             img_format = (raw_img.format or "").upper()
             if img_format not in SUPPORTED_IMAGE_FORMATS:
                 raise UnsupportedFormatError(
                     f"Unsupported image format: {img_format}. "
                     f"Supported formats: {sorted(SUPPORTED_IMAGE_FORMATS)}"
                 )
+            if raw_img.width * raw_img.height > MAX_PAGE_PIXELS:
+                raise DocumentTooLargeError("Image exceeds the 20000000 pixel limit")
             rgb_img = raw_img.convert("RGB")
             width, height = float(rgb_img.width), float(rgb_img.height)
             return [
@@ -67,21 +92,25 @@ def _parse_image_file(file_bytes: bytes) -> list[RenderedPage]:
                     scale=1.0,
                 )
             ]
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise DocumentTooLargeError("Image exceeds the 20000000 pixel limit") from exc
     except UnidentifiedImageError as exc:
         raise UnsupportedFormatError(
             "Unrecognized file format or corrupted payload"
         ) from exc
 
 
-def parse_document(file_bytes: bytes, filename: str = "") -> list[RenderedPage]:
-    """Parse document bytes into a sequence of rendered pages.
+def iter_document_pages(
+    file_bytes: bytes, filename: str = ""
+) -> Generator[RenderedPage, None, None]:
+    """Validate a document and render its pages one at a time.
 
     Args:
         file_bytes: Binary document content.
         filename: Optional filename used for hint inspection.
 
-    Returns:
-        List of RenderedPage objects ready for OCR inference.
+    Yields:
+        Rendered pages ready for OCR inference; callers own the image lifetime.
     """
     if not file_bytes:
         raise UnsupportedFormatError("Uploaded document content is empty")
@@ -89,10 +118,21 @@ def parse_document(file_bytes: bytes, filename: str = "") -> list[RenderedPage]:
     is_pdf = file_bytes.startswith(b"%PDF") or filename.lower().endswith(".pdf")
     if is_pdf:
         try:
-            return _parse_pdf_pages(file_bytes)
+            yield from _parse_pdf_pages(file_bytes)
+        except DocumentTooLargeError:
+            raise
         except Exception as exc:
             raise UnsupportedFormatError(
                 f"Failed to parse PDF document: {exc}"
             ) from exc
 
-    return _parse_image_file(file_bytes)
+    else:
+        yield from _parse_image_file(file_bytes)
+
+
+def parse_document(file_bytes: bytes, filename: str = "") -> list[RenderedPage]:
+    """Collect rendered pages for callers requiring a reusable list.
+
+    Use iter_document_pages for bounded-memory sequential inference.
+    """
+    return list(iter_document_pages(file_bytes, filename))
