@@ -15,6 +15,7 @@ from rocm_ocr.models import BoundingBox
 from rocm_ocr.parser import RenderedPage
 
 ROCM_PROVIDER = "ROCMExecutionProvider"
+GPU_INFERENCE_ERROR_DETAIL = "ROCm GPU inference failed"
 logger = logging.getLogger(__name__)
 # ORT exposes these exception classes from its untyped native extension.
 ENGINE_ERRORS: tuple[type[Exception], ...] = (
@@ -48,7 +49,7 @@ def _require_rocm_session(session: ort.InferenceSession, stage_name: str) -> Non
     providers = session.get_providers()
     if not providers or providers[0] != ROCM_PROVIDER:
         raise GpuInferenceError(
-            "ROCm GPU inference failed",
+            GPU_INFERENCE_ERROR_DETAIL,
             ROCM_PROVIDER,
             f"{stage_name} uses {providers}; required {ROCM_PROVIDER}",
         )
@@ -224,7 +225,7 @@ class OcrEngine:
         """Reject unavailable engines and fallback in either GPU stage."""
         if self._engine is None:
             raise GpuInferenceError(
-                "ROCm GPU inference failed", ROCM_PROVIDER, self._initialization_error
+                GPU_INFERENCE_ERROR_DETAIL, ROCM_PROVIDER, self._initialization_error
             )
         for name, stage in (
             ("Detection", self._engine.text_det),
@@ -271,7 +272,7 @@ class OcrEngine:
         except ENGINE_ERRORS as exc:
             self._is_ready = False
             raise GpuInferenceError(
-                detail="ROCm GPU inference failed",
+                detail=GPU_INFERENCE_ERROR_DETAIL,
                 provider_attempted=ROCM_PROVIDER,
                 error_message=str(exc),
             ) from exc

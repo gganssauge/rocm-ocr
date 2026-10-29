@@ -165,8 +165,9 @@ def test_image_decompression_bombs_raise_document_limit_errors(width: int) -> No
     with Image.new("1", (width, 10_000)) as image:
         buf = io.BytesIO()
         image.save(buf, format="PNG")
+    data = buf.getvalue()
     with pytest.raises(DocumentTooLargeError, match="20000000 pixel limit"):
-        parse_document(buf.getvalue(), filename="large.png")
+        parse_document(data, filename="large.png")
 
 
 def test_ocr_only_iteration_preserves_original_page_numbers() -> None:

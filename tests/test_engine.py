@@ -160,11 +160,10 @@ def test_missing_rocm_is_reported_without_constructing_cpu_models(
     constructor.assert_not_called()
     assert engine.is_ready() is False
     assert engine.active_provider == "UnavailableExecutionProvider"
-    with (
-        Image.new("RGB", (64, 64)) as image,
-        pytest.raises(GpuInferenceError, match="ROCm GPU inference failed"),
-    ):
-        engine.infer_page(RenderedPage(0, image, 64, 64, 1))
+    with Image.new("RGB", (64, 64)) as image:
+        page = RenderedPage(0, image, 64, 64, 1)
+        with pytest.raises(GpuInferenceError, match="ROCm GPU inference failed"):
+            engine.infer_page(page)
 
 
 def test_rapidocr_native_errors_keep_gpu_error_contract(
@@ -173,11 +172,10 @@ def test_rapidocr_native_errors_keep_gpu_error_contract(
     """RapidOCR wraps native ORT failures in its own non-RuntimeError exception."""
     engine = OcrEngine(Settings())
     native_rapid.side_effect = ONNXRuntimeError("HIP runtime failure")
-    with (
-        Image.new("RGB", (64, 64)) as image,
-        pytest.raises(GpuInferenceError) as error,
-    ):
-        engine.infer_page(RenderedPage(0, image, 64, 64, 1))
+    with Image.new("RGB", (64, 64)) as image:
+        page = RenderedPage(0, image, 64, 64, 1)
+        with pytest.raises(GpuInferenceError) as error:
+            engine.infer_page(page)
     assert error.value.error_message == "HIP runtime failure"
 
 
