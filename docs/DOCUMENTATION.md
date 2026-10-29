@@ -285,8 +285,12 @@ uv sync --all-groups
 # Lokaler Dev-Server
 uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Tests ausführen
-uv run pytest
+# Tests inklusive GPU-End-to-End-Tests ausführen
+LD_LIBRARY_PATH="$PWD/lib/rocm${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  uv run pytest
+
+# Tests ohne native GPU-Inferenz ausführen
+uv run pytest --ignore=tests/test_e2e.py
 
 # Pre-Commit-Prüfungen manuell diagnostizieren (bei Hook-Fehlern)
 uv run prek run --all-files

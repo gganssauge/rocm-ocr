@@ -63,8 +63,13 @@ The project uses [`uv`](https://docs.astral.sh/uv/) for Python package and virtu
 - **Testing & Coverage:**
 
   ```bash
-  uv run pytest --cov=rocm_ocr --cov-report=term-missing
+  LD_LIBRARY_PATH="$PWD/lib/rocm${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    uv run pytest --cov=rocm_ocr --cov-report=term-missing
   ```
+
+  GPU-independent tests can be run with `uv run pytest --ignore=tests/test_e2e.py`.
+  The full suite requires a working ROCm installation and the local compatibility
+  libraries described in the [Quickstart](README.md#-quickstart).
 
 - **Function Metrics:**
   - Keep functions focused and concise (maximum 30 logical lines).

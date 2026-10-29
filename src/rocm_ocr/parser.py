@@ -72,8 +72,7 @@ def _parse_pdf_pages(file_bytes: bytes, ocr_only: bool) -> Iterator[RenderedPage
     matrix = pymupdf.Matrix(PDF_RENDER_ZOOM, PDF_RENDER_ZOOM)
     with pymupdf.open(stream=file_bytes, filetype="pdf") as doc:
         validate_pdf_document(doc)
-        for page_idx in range(len(doc)):
-            page = doc[page_idx]
+        for page_idx, page in enumerate(doc):
             if ocr_only and not pdf_page_needs_ocr(page):
                 continue
             pix = page.get_pixmap(matrix=matrix, alpha=False)
@@ -105,13 +104,12 @@ def _parse_image_file(file_bytes: bytes) -> list[RenderedPage]:
             if raw_img.width * raw_img.height > MAX_PAGE_PIXELS:
                 raise DocumentTooLargeError("Image exceeds the 20000000 pixel limit")
             rgb_img = raw_img.convert("RGB")
-            width, height = float(rgb_img.width), float(rgb_img.height)
             return [
                 RenderedPage(
                     page_number=0,
                     image=rgb_img,
-                    width=width,
-                    height=height,
+                    width=float(rgb_img.width),
+                    height=float(rgb_img.height),
                     scale=1.0,
                 )
             ]
@@ -126,15 +124,9 @@ def _parse_image_file(file_bytes: bytes) -> list[RenderedPage]:
 def iter_document_pages(
     file_bytes: bytes, filename: str = "", *, ocr_only: bool = False
 ) -> Generator[RenderedPage, None, None]:
-    """Validate a document and render its pages one at a time.
+    """Render binary PDF/image content, using filename as a format hint.
 
-    Args:
-        file_bytes: Binary document content.
-        filename: Optional filename used for hint inspection.
-        ocr_only: Skip PDF pages already containing sufficient native text.
-
-    Yields:
-        Rendered pages ready for OCR inference; callers own the image lifetime.
+    With ocr_only, skip native PDF pages. Callers must close yielded images.
     """
     if not file_bytes:
         raise UnsupportedFormatError("Uploaded document content is empty")

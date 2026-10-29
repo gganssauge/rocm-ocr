@@ -133,19 +133,17 @@ def _fatal_exit(code: int = 1) -> None:
 
 
 @app.exception_handler(DocumentTooLargeError)
-async def document_limit_exception_handler(
-    request: object, exc: DocumentTooLargeError
-) -> JSONResponse:
-    """Return HTTP 413 when document page or pixel budgets are exceeded."""
-    return JSONResponse(status_code=413, content={"detail": str(exc)})
-
-
 @app.exception_handler(UnsupportedFormatError)
-async def document_format_exception_handler(
-    request: object, exc: UnsupportedFormatError
+async def document_exception_handler(
+    request: object, exc: DocumentTooLargeError | UnsupportedFormatError
 ) -> JSONResponse:
-    """Return HTTP 400 for malformed or unsupported uploaded documents."""
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
+    """Map document budget and format failures to their HTTP responses."""
+    match exc:
+        case DocumentTooLargeError():
+            code = 413
+        case UnsupportedFormatError():
+            code = 400
+    return JSONResponse(status_code=code, content={"detail": str(exc)})
 
 
 @app.exception_handler(GpuInferenceError)
@@ -179,7 +177,7 @@ async def gpu_inference_exception_handler(
 @app.get("/healthz")
 async def healthz() -> HealthResponse:
     """Liveness probe returning HTTP 200 when server is listening."""
-    return HealthResponse(status="ok")
+    return HealthResponse()
 
 
 @app.get("/readyz")
@@ -191,7 +189,7 @@ async def readyz() -> ReadyResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="OCR engine or execution provider not ready",
         )
-    return ReadyResponse(status="ready", provider=engine.active_provider)
+    return ReadyResponse(provider=engine.active_provider)
 
 
 security = HTTPBearer(auto_error=False)
@@ -224,7 +222,6 @@ async def setup(request: SetupRequest) -> SetupResponse:
     limiter: DynamicConcurrencyLimiter = app.state.limiter
     await limiter.update_concurrency(request.concurrency)
     return SetupResponse(
-        status="updated",
         concurrency=limiter.capacity,
         active_tasks=limiter.active_tasks,
     )
@@ -239,18 +236,15 @@ def _process_inference_pages(
         iter_document_pages(file_bytes, filename=filename, ocr_only=ocr_only)
     ) as pages:
         for page in pages:
-            try:
-                boxes = engine.infer_page(page)
+            with closing(page.image):
                 page_results.append(
                     PageResult(
                         page_number=page.page_number,
                         width=page.width,
                         height=page.height,
-                        boxes=boxes,
+                        boxes=engine.infer_page(page),
                     )
                 )
-            finally:
-                page.image.close()
     return page_results
 
 
@@ -325,15 +319,13 @@ async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
 
     total_chars += sum(len(b.text) for p in pages for b in p.boxes)
 
-    headers = {
-        "X-Inference-Time-Ms": str(elapsed_ms),
-        "X-Execution-Provider": engine.active_provider,
-        "X-Total-Pages": str(page_count),
-        "X-Extracted-Chars": str(total_chars),
-    }
-
     return Response(
         content=sandwich_bytes,
         media_type="application/pdf",
-        headers=headers,
+        headers={
+            "X-Inference-Time-Ms": str(elapsed_ms),
+            "X-Execution-Provider": engine.active_provider,
+            "X-Total-Pages": str(page_count),
+            "X-Extracted-Chars": str(total_chars),
+        },
     )

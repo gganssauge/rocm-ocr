@@ -15,6 +15,8 @@ from rocm_ocr.engine import (
     GpuInferenceError,
     OcrEngine,
     _convert_quad_to_bbox,
+    _find_in_dirs,
+    _resolve_dict_path,
     _resolve_model_kwargs,
     create_rapidocr,
 )
@@ -61,6 +63,70 @@ def test_resolve_model_kwargs_ppocrv6(tmp_path: Path) -> None:
     assert "cls_model_path" in kwargs
     assert kwargs["rec_model_path"].endswith("PP-OCRv6_small_rec.onnx")
     assert kwargs["rec_keys_path"].endswith("ppocrv6_dict.txt")
+
+
+def test_model_lookup_preserves_directory_and_candidate_priority(
+    tmp_path: Path,
+) -> None:
+    """Prefer the first directory, then the first existing filename within it."""
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "fallback.onnx").touch()
+    (second / "preferred.onnx").touch()
+    dirs = [tmp_path / "missing", first, second]
+    candidates = ["preferred.onnx", "fallback.onnx"]
+    assert _find_in_dirs(dirs, candidates) == str(first / "fallback.onnx")
+    (first / "preferred.onnx").touch()
+    assert _find_in_dirs(dirs, candidates) == str(first / "preferred.onnx")
+
+
+@pytest.mark.parametrize("valid_override", [False, True])
+def test_explicit_recognition_paths_override_discovered_files(
+    tmp_path: Path, valid_override: bool
+) -> None:
+    """Missing overrides must still fall back to discovery; valid ones win."""
+    discovered_model = tmp_path / "rec.onnx"
+    discovered_dict = tmp_path / "dict.txt"
+    explicit_model = tmp_path / "custom.onnx"
+    explicit_dict = tmp_path / "custom.txt"
+    discovered_model.touch()
+    discovered_dict.touch()
+    if valid_override:
+        explicit_model.touch()
+        explicit_dict.touch()
+    kwargs = _resolve_model_kwargs(tmp_path, explicit_model, explicit_dict)
+    assert kwargs == {
+        "rec_model_path": str(explicit_model if valid_override else discovered_model),
+        "rec_keys_path": str(explicit_dict if valid_override else discovered_dict),
+    }
+
+
+@pytest.mark.parametrize(
+    ("model_name", "dictionary"),
+    [
+        ("LATIN_PP-OCRv3_rec.onnx", "latin_dict.txt"),
+        ("PP-OCRv3_rec.onnx", "latin_dict.txt"),
+        ("PP-OCRv6_small_rec.onnx", "ppocrv6_dict.txt"),
+    ],
+)
+def test_dictionary_lookup_preserves_bundled_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_name: str,
+    dictionary: str,
+) -> None:
+    """Prefer local generic dictionaries to bundled ones, without mixing models."""
+    monkeypatch.setattr("rocm_ocr.engine.__file__", str(tmp_path / "engine.py"))
+    assert _resolve_dict_path([], model_name) is None
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    (resources / dictionary).touch()
+    assert _resolve_dict_path([], model_name) == str(resources / dictionary)
+    (tmp_path / "dict.txt").touch()
+    assert _resolve_dict_path([tmp_path], model_name) == str(tmp_path / "dict.txt")
+    (tmp_path / dictionary).touch()
+    assert _resolve_dict_path([tmp_path], model_name) == str(tmp_path / dictionary)
 
 
 def test_ocr_engine_is_ready() -> None:

@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -10,7 +11,8 @@ from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
 from rocm_ocr.engine import ROCM_PROVIDER, GpuInferenceError
-from rocm_ocr.main import app
+from rocm_ocr.main import _process_inference_pages, app
+from rocm_ocr.parser import RenderedPage
 
 
 def _create_test_image_bytes() -> bytes:
@@ -19,6 +21,40 @@ def _create_test_image_bytes() -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+@pytest.mark.parametrize("inference_fails", [False, True])
+def test_inference_closes_images_and_page_iterator(
+    monkeypatch: pytest.MonkeyPatch, inference_fails: bool
+) -> None:
+    """Close images and the parser generator on both successful and failed OCR."""
+    image = Image.new("RGB", (10, 20))
+    iterator_closed = False
+
+    def pages() -> Generator[RenderedPage, None, None]:
+        nonlocal iterator_closed
+        try:
+            yield RenderedPage(3, image, 10.0, 20.0, 1.0)
+        finally:
+            iterator_closed = True
+
+    monkeypatch.setattr(
+        "rocm_ocr.main.iter_document_pages", MagicMock(return_value=pages())
+    )
+    engine = MagicMock()
+    engine.infer_page.return_value = []
+    if inference_fails:
+        engine.infer_page.side_effect = RuntimeError("inference failed")
+        with pytest.raises(RuntimeError, match="inference failed"):
+            _process_inference_pages(engine, b"document", "test.pdf")
+    else:
+        result = _process_inference_pages(engine, b"document", "test.pdf")
+        assert [page.model_dump() for page in result] == [
+            {"page_number": 3, "width": 10.0, "height": 20.0, "boxes": []}
+        ]
+    assert iterator_closed
+    with pytest.raises(ValueError, match="closed"):
+        image.getpixel((0, 0))
 
 
 @pytest.fixture

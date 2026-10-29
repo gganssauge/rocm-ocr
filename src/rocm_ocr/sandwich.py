@@ -7,9 +7,6 @@ Eliminates character drift using rotation-aware horizontal scaling matrix morphs
 detects born-digital documents, and cleans pre-existing text layers from scans.
 """
 
-from __future__ import annotations
-
-import io
 from collections.abc import Sequence
 from typing import Final
 
@@ -35,19 +32,12 @@ DEFAULT_STANDARD_FONT: Final[str] = "helv"
 
 
 def is_born_digital_pdf(pdf_bytes: bytes) -> tuple[bool, int, int]:
-    """Check if a PDF document is born-digital with native vector text.
-
-    Args:
-        pdf_bytes: Raw binary content of the PDF.
-
-    Returns:
-        Tuple of (is_born_digital: bool, total_text_chars: int, page_count: int).
-    """
+    """Return (all pages native, visible character count, page count) for a PDF."""
     try:
         doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     except (pymupdf.FileDataError, pymupdf.EmptyFileError) as exc:
         raise UnsupportedFormatError(f"Failed to parse PDF document: {exc}") from exc
-    try:
+    with doc:
         validate_pdf_document(doc)
         total_pages = len(doc)
         if total_pages == 0:
@@ -56,8 +46,6 @@ def is_born_digital_pdf(pdf_bytes: bytes) -> tuple[bool, int, int]:
         total_visible = sum(count_visible_pdf_chars(page) for page in doc)
         all_native = all(not pdf_page_needs_ocr(page) for page in doc)
         return all_native, total_visible, total_pages
-    finally:
-        doc.close()
 
 
 def _strip_existing_text(page: pymupdf.Page) -> None:
@@ -104,15 +92,7 @@ def _insert_ocr_box(
     bbox: list[float],
     fontname: str = DEFAULT_STANDARD_FONT,
 ) -> None:
-    """Inject an OCR text box as an invisible text layer with rotation-aware
-    morph scaling.
-
-    Args:
-        page: Target PyMuPDF page.
-        text: Recognized text string.
-        bbox: Bounding box [x0, y0, x1, y1] in points.
-        fontname: Standard PDF font name (default: 'helv').
-    """
+    """Insert invisible text in a point-based bbox, accounting for page rotation."""
     clean_text = text.strip()
     if not clean_text or len(bbox) != 4 or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
         return
@@ -153,42 +133,16 @@ def generate_sandwich_pdf(
     pdf_bytes: bytes,
     pages: Sequence[PageResult],
 ) -> bytes:
-    """Inject an invisible OCR text layer into a PDF document using OCR results.
+    """Return PDF bytes with invisible OCR replaced on the supplied result pages.
 
-    Strips pre-existing invisible OCR text to prevent duplicates, preserving
-    native visible content, then embeds new OCR text boxes with horizontal scaling.
-
-    Args:
-        pdf_bytes: Raw binary content of the source PDF.
-        pages: Sequence of PageResult objects containing detected text bounding boxes.
-
-    Returns:
-        The generated searchable sandwich PDF bytes.
+    Preserve visible content and unmapped pages; horizontally scale inserted text.
     """
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    try:
+    with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
         pages_by_num = {p.page_number: p for p in pages}
-
-        for page_idx in range(len(doc)):
+        for page_idx, page in enumerate(doc):
             if page_idx not in pages_by_num:
                 continue
-
-            page_result = pages_by_num[page_idx]
-            page = doc[page_idx]
-
-            # Strip existing text layer before inserting new OCR boxes
             _strip_existing_text(page)
-
-            for box in page_result.boxes:
-                _insert_ocr_box(
-                    page,
-                    text=box.text,
-                    bbox=box.bbox,
-                    fontname=DEFAULT_STANDARD_FONT,
-                )
-
-        out_buf = io.BytesIO()
-        doc.save(out_buf, garbage=4, deflate=True)
-        return out_buf.getvalue()
-    finally:
-        doc.close()
+            for box in pages_by_num[page_idx].boxes:
+                _insert_ocr_box(page, text=box.text, bbox=box.bbox)
+        return doc.tobytes(garbage=4, deflate=True)

@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+import pytest
+
 from rocm_ocr.config import Settings
 
 
@@ -32,3 +34,25 @@ def test_apply_rocm_env_overrides_preserves_existing(monkeypatch) -> None:
     cfg = Settings(hsa_override_gfx_version="11.0.0")
     cfg.apply_rocm_env_overrides()
     assert os.environ.get("HSA_OVERRIDE_GFX_VERSION") == "11.0.2"
+
+
+@pytest.mark.parametrize(
+    ("name", "default"),
+    [
+        ("HSA_OVERRIDE_GFX_VERSION", "11.0.0"),
+        ("MIOPEN_DEBUG_CONV_WINOGRAD", "0"),
+        ("MIOPEN_FIND_MODE", "2"),
+    ],
+)
+def test_all_rocm_defaults_preserve_explicit_environment_values(
+    monkeypatch: pytest.MonkeyPatch, name: str, default: str
+) -> None:
+    """Set missing defaults but preserve user settings, even explicit emptiness."""
+    cfg = Settings(hsa_override_gfx_version="11.0.0")
+    monkeypatch.delenv(name, raising=False)
+    cfg.apply_rocm_env_overrides()
+    assert os.environ[name] == default
+    for value in ("custom", ""):
+        monkeypatch.setenv(name, value)
+        cfg.apply_rocm_env_overrides()
+        assert os.environ[name] == value
