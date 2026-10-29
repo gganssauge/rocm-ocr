@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -14,6 +15,7 @@ from rocm_ocr.models import BoundingBox
 from rocm_ocr.parser import RenderedPage
 
 ROCM_PROVIDER = "ROCMExecutionProvider"
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -234,7 +236,8 @@ class OcrEngine:
                 self._engine(dummy_arr)
             self._is_ready = True
             return True
-        except Exception:
+        except Exception as exc:
+            logger.warning("Readiness probe check failed: %s", exc, exc_info=True)
             return False
 
     def infer_page(self, page: RenderedPage) -> list[BoundingBox]:

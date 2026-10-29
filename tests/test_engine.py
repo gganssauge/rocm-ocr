@@ -1,5 +1,6 @@
 """Unit tests for OCR engine and coordinate conversions."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -62,6 +63,17 @@ def test_ocr_engine_is_ready() -> None:
     engine = OcrEngine(Settings())
     assert engine.is_ready() is True
     assert engine.active_provider is not None
+
+
+def test_ocr_engine_is_ready_failure_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify that OcrEngine.is_ready() returns False and logs warning on failure."""
+    engine = OcrEngine(Settings())
+    engine._engine = MagicMock(side_effect=RuntimeError("MIOpen compiler failure"))
+    with caplog.at_level(logging.WARNING):
+        assert engine.is_ready() is False
+    assert "Readiness probe check failed: MIOpen compiler failure" in caplog.text
 
 
 def test_ocr_engine_infer_page_empty() -> None:
