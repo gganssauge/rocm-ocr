@@ -167,3 +167,27 @@ def test_image_decompression_bombs_raise_document_limit_errors(width: int) -> No
         image.save(buf, format="PNG")
     with pytest.raises(DocumentTooLargeError, match="20000000 pixel limit"):
         parse_document(buf.getvalue(), filename="large.png")
+
+
+def test_ocr_only_iteration_preserves_original_page_numbers() -> None:
+    """Render only the scanned page of a mixed native/scanned document."""
+    from rocm_ocr.parser import iter_document_pages
+
+    with pymupdf.open() as doc:
+        for _ in range(2):
+            page = doc.new_page(width=300, height=400)
+            page.insert_text(
+                (5, 20),
+                "Native text with enough characters to skip OCR processing.",
+                fontsize=4,
+            )
+        scan = doc.new_page(width=300, height=400)
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 10, 10), False)
+        pix.clear_with(255)
+        scan.insert_image(scan.rect, pixmap=pix)
+        data = doc.tobytes()
+    numbers = []
+    for page in iter_document_pages(data, "mixed.pdf", ocr_only=True):
+        numbers.append(page.page_number)
+        page.image.close()
+    assert numbers == [2]

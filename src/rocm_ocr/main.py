@@ -27,7 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from scalar_fastapi import get_scalar_api_reference
 
 from rocm_ocr import __version__
-from rocm_ocr.concurrency import DynamicConcurrencyLimiter
+from rocm_ocr.concurrency import DynamicConcurrencyLimiter, run_in_thread
 from rocm_ocr.config import settings
 from rocm_ocr.engine import GpuInferenceError, OcrEngine
 from rocm_ocr.logging import setup_logging
@@ -231,11 +231,13 @@ async def setup(request: SetupRequest) -> SetupResponse:
 
 
 def _process_inference_pages(
-    engine: OcrEngine, file_bytes: bytes, filename: str
+    engine: OcrEngine, file_bytes: bytes, filename: str, *, ocr_only: bool = False
 ) -> list[PageResult]:
     """Parse document pages and run OCR inference on each rendered page."""
     page_results: list[PageResult] = []
-    with closing(iter_document_pages(file_bytes, filename=filename)) as pages:
+    with closing(
+        iter_document_pages(file_bytes, filename=filename, ocr_only=ocr_only)
+    ) as pages:
         for page in pages:
             try:
                 boxes = engine.infer_page(page)
@@ -267,7 +269,7 @@ async def predict(file: Annotated[UploadFile, File()]) -> PredictResponse:
     start_time = time.perf_counter()
     async with limiter:
         file_bytes = await file.read()
-        pages = await asyncio.to_thread(
+        pages = await run_in_thread(
             _process_inference_pages, engine, file_bytes, filename
         )
     elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
@@ -299,7 +301,7 @@ async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Sandwich PDF generation requires a PDF input file",
             )
-        is_bd, total_chars, page_count = await asyncio.to_thread(
+        is_bd, total_chars, page_count = await run_in_thread(
             is_born_digital_pdf, file_bytes
         )
         if is_bd:
@@ -315,20 +317,18 @@ async def sandwich(file: Annotated[UploadFile, File()]) -> Response:
                     "X-Skipped-Reason": "born-digital",
                 },
             )
-        pages = await asyncio.to_thread(
-            _process_inference_pages, engine, file_bytes, filename
+        pages = await run_in_thread(
+            _process_inference_pages, engine, file_bytes, filename, ocr_only=True
         )
-        sandwich_bytes = await asyncio.to_thread(
-            generate_sandwich_pdf, file_bytes, pages
-        )
+        sandwich_bytes = await run_in_thread(generate_sandwich_pdf, file_bytes, pages)
     elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
 
-    total_chars = sum(len(b.text) for p in pages for b in p.boxes)
+    total_chars += sum(len(b.text) for p in pages for b in p.boxes)
 
     headers = {
         "X-Inference-Time-Ms": str(elapsed_ms),
         "X-Execution-Provider": engine.active_provider,
-        "X-Total-Pages": str(len(pages)),
+        "X-Total-Pages": str(page_count),
         "X-Extracted-Chars": str(total_chars),
     }
 

@@ -14,11 +14,8 @@ from rocm_ocr.main import app
 
 
 @pytest.fixture
-async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[AsyncClient]:
+async def client(native_rapid: MagicMock) -> AsyncIterator[AsyncClient]:
     """Keep the real API and parser while replacing native GPU inference."""
-    rapid = MagicMock(return_value=(None, None))
-    rapid.text_det.infer.session.get_providers.return_value = ["ROCMExecutionProvider"]
-    monkeypatch.setattr("rocm_ocr.engine.RapidOCR", MagicMock(return_value=rapid))
     async with (
         app.router.lifespan_context(app),
         AsyncClient(
@@ -180,3 +177,98 @@ async def test_requests_at_exactly_50_mib_are_accepted(
     response = await client.post("/ocr/v1/setup", content=json_body(), headers=headers)
     assert response.status_code == 200
     assert response.json()["concurrency"] == 1
+
+
+async def test_mixed_pdf_gets_searchable_scan_without_duplicate_native_text(
+    client: AsyncClient, native_rapid: MagicMock
+) -> None:
+    """Preserve native pages and OCR the minority scan page with correct metadata."""
+    native_rapid.return_value = (
+        [([[10, 10], [200, 10], [200, 30], [10, 30]], "Recognized scan", 0.99)],
+        None,
+    )
+    with pymupdf.open(stream=_native_pdf(page_count=2), filetype="pdf") as doc:
+        original_pixels = doc[0].get_pixmap().samples
+        scan = doc.new_page(width=300, height=400)
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 10, 10), False)
+        pix.clear_with(255)
+        scan.insert_image(scan.rect, pixmap=pix)
+        data = doc.tobytes()
+    result = await client.post(
+        "/ocr/v1/sandwich", files={"file": ("mixed.pdf", data, "application/pdf")}
+    )
+    assert result.status_code == 200
+    assert result.headers["x-total-pages"] == "3"
+    assert "x-born-digital" not in result.headers
+    with pymupdf.open(stream=result.content, filetype="pdf") as doc:
+        assert doc[0].get_pixmap().samples == original_pixels
+        assert doc[0].get_text().count("A native document") == 1
+        assert "Recognized scan" in doc[2].get_text()
+
+
+async def test_cancelled_request_holds_slot_until_native_worker_finishes(
+    client: AsyncClient, native_rapid: MagicMock
+) -> None:
+    """Repeated cancellation must not permit overlapping inference at capacity 1."""
+    entered = threading.Event()
+    release = threading.Event()
+    second_entered = threading.Event()
+    lock = threading.Lock()
+    calls = 0
+
+    def blocked_native(image: object) -> tuple[None, None]:
+        nonlocal calls
+        with lock:
+            calls += 1
+            if calls == 1:
+                entered.set()
+            else:
+                second_entered.set()
+        release.wait(timeout=3)
+        return None, None
+
+    native_rapid.side_effect = blocked_native
+
+    async def predict() -> object:
+        return await client.post(
+            "/ocr/v1/predict",
+            files={"file": ("native.pdf", _native_pdf(), "application/pdf")},
+        )
+
+    first = asyncio.create_task(predict())
+    second: asyncio.Task[object] | None = None
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        first.cancel()
+        await asyncio.sleep(0)
+        second = asyncio.create_task(predict())
+        first.cancel()
+        await asyncio.sleep(0.05)
+        assert not second_entered.is_set()
+        state = await client.post("/ocr/v1/setup", json={"concurrency": 1})
+        assert state.json()["active_tasks"] == 1
+    finally:
+        release.set()
+        tasks = [first] if second is None else [first, second]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    assert isinstance(results[0], asyncio.CancelledError)
+
+
+async def test_cpu_fallback_returns_http_503_not_success(
+    client: AsyncClient, native_rapid: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Readiness and prediction reject fallback in the classification stage."""
+    monkeypatch.setattr("rocm_ocr.main._fatal_exit", MagicMock())
+    native_rapid.text_cls.infer.session.get_providers.return_value = [
+        "CPUExecutionProvider"
+    ]
+    ready = await client.get("/readyz")
+    assert ready.status_code == 503
+    result = await client.post(
+        "/ocr/v1/predict",
+        files={"file": ("document.pdf", _native_pdf(), "application/pdf")},
+    )
+    assert result.status_code == 503
+    assert result.json()["provider_attempted"] == "ROCMExecutionProvider"
+    assert "Classification uses" in result.json()["error_message"]
+    await asyncio.sleep(0.6)

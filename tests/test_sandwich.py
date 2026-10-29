@@ -154,7 +154,9 @@ def test_generate_sandwich_pdf_strips_old_text():
     # Create PDF with old text
     doc = pymupdf.open()
     page = doc.new_page(width=595.0, height=842.0)
-    page.insert_text(pymupdf.Point(50, 100), "Alte schlechte OCR", fontsize=12)
+    page.insert_text(
+        pymupdf.Point(50, 100), "Alte schlechte OCR", fontsize=12, render_mode=3
+    )
     buf = io.BytesIO()
     doc.save(buf)
     doc.close()
@@ -181,6 +183,62 @@ def test_generate_sandwich_pdf_strips_old_text():
 
     assert "Alte schlechte OCR" not in res_text
     assert "Neue ROCm-OCR" in res_text
+
+
+def test_sandwich_preserves_visible_content_while_replacing_invisible_ocr() -> None:
+    """Keep vector graphics, images and overlapping visible text pixel-identical."""
+    with pymupdf.open() as doc:
+        page = doc.new_page(width=200, height=200)
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 10, 10), False)
+        pix.clear_with(240)
+        page.insert_image(page.rect, pixmap=pix)
+        page.draw_rect(pymupdf.Rect(20, 20, 80, 80), color=(1, 0, 0), fill=(1, 0, 0))
+        page.insert_text((20, 110), "Visible title")
+        page.insert_text((20, 110), "Old OCR", render_mode=3)
+        original_pixels = page.get_pixmap().samples
+        data = doc.tobytes()
+    result = generate_sandwich_pdf(
+        data,
+        [
+            PageResult(
+                page_number=0,
+                width=200,
+                height=200,
+                boxes=[
+                    BoundingBox(
+                        text="New OCR",
+                        bbox=[20, 100, 100, 115],
+                        confidence=0.99,
+                    )
+                ],
+            )
+        ],
+    )
+    with pymupdf.open(stream=result, filetype="pdf") as doc:
+        assert doc[0].get_pixmap().samples == original_pixels
+        text = doc[0].get_text()
+        assert "Visible title" in text
+        assert "Old OCR" not in text
+        assert "New OCR" in text
+
+
+def test_sandwich_does_not_apply_existing_redaction_annotations() -> None:
+    """Uncommitted user redactions must remain annotations, not alter the PDF."""
+    with pymupdf.open() as doc:
+        page = doc.new_page(width=200, height=200)
+        page.insert_text((20, 40), "Visible title")
+        page.insert_text((20, 100), "Old OCR", render_mode=3)
+        page.add_redact_annot(pymupdf.Rect(10, 20, 120, 50), fill=(0, 0, 0))
+        original_pixels = page.get_pixmap().samples
+        data = doc.tobytes()
+    result = generate_sandwich_pdf(
+        data, [PageResult(page_number=0, width=200, height=200, boxes=[])]
+    )
+    with pymupdf.open(stream=result, filetype="pdf") as doc:
+        assert doc[0].get_pixmap().samples == original_pixels
+        assert len(list(doc[0].annots())) == 1
+        assert "Visible title" in doc[0].get_text()
+        assert "Old OCR" not in doc[0].get_text()
 
 
 def test_is_born_digital_empty_pdf():
@@ -215,7 +273,7 @@ def test_insert_ocr_box_fallback_on_invalid_font():
 
 
 def test_is_born_digital_mixed_multipage_pdf():
-    """Verify multi-page PDF with minority scan pages is classified as born-digital."""
+    """Never skip scanned pages merely because native text is the majority."""
     from rocm_ocr.sandwich import is_born_digital_pdf
 
     doc = pymupdf.open()
@@ -243,7 +301,7 @@ def test_is_born_digital_mixed_multipage_pdf():
     doc.close()
 
     is_bd, chars, pages = is_born_digital_pdf(buf.getvalue())
-    assert is_bd is True
+    assert is_bd is False
     assert pages == 3
     assert chars >= 100
 

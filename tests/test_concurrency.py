@@ -1,10 +1,11 @@
 """Unit tests for the dynamic concurrency limiter."""
 
 import asyncio
+import threading
 
 import pytest
 
-from rocm_ocr.concurrency import DynamicConcurrencyLimiter
+from rocm_ocr.concurrency import DynamicConcurrencyLimiter, run_in_thread
 
 
 @pytest.mark.asyncio
@@ -56,3 +57,31 @@ async def test_concurrency_limiter_blocks_excess_tasks() -> None:
     await asyncio.gather(task("t1", 0.05), task("t2", 0.01))
 
     assert execution_order == ["t1_start", "t1_end", "t2_start", "t2_end"]
+
+
+async def test_worker_failure_after_cancellation_is_observed() -> None:
+    """Do not lose a native worker exception while draining an aborted request."""
+    entered = threading.Event()
+    release = threading.Event()
+    limiter = DynamicConcurrencyLimiter(1)
+
+    def failing_worker() -> None:
+        entered.set()
+        release.wait(timeout=2)
+        raise RuntimeError("native worker failure")
+
+    async def request() -> None:
+        async with limiter:
+            await run_in_thread(failing_worker)
+
+    task = asyncio.create_task(request())
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert limiter.active_tasks == 1
+    finally:
+        release.set()
+        with pytest.raises(RuntimeError, match="native worker failure"):
+            await task
+    assert limiter.active_tasks == 0

@@ -33,6 +33,27 @@ class RenderedPage:
     scale: float
 
 
+def count_visible_pdf_chars(page: pymupdf.Page) -> int:
+    """Count native visible text, excluding invisible OCR and transparent spans."""
+    return sum(
+        len(span.get("chars", ()))
+        for span in page.get_texttrace()
+        if span["type"] != 3 and span["opacity"] > 0
+    )
+
+
+def pdf_page_needs_ocr(page: pymupdf.Page) -> bool:
+    """Require OCR unless a page has sufficient native text and no full-page scan."""
+    if count_visible_pdf_chars(page) < 50:
+        return True
+    page_area = page.rect.width * page.rect.height
+    return any(
+        rect.width * rect.height >= 0.70 * page_area
+        for image in page.get_images()
+        for rect in page.get_image_rects(image[0])
+    )
+
+
 def validate_pdf_document(doc: pymupdf.Document) -> None:
     """Reject PDFs exceeding the supported document resource budget."""
     if len(doc) > MAX_PDF_PAGES:
@@ -46,13 +67,15 @@ def validate_pdf_document(doc: pymupdf.Document) -> None:
             )
 
 
-def _parse_pdf_pages(file_bytes: bytes) -> Iterator[RenderedPage]:
+def _parse_pdf_pages(file_bytes: bytes, ocr_only: bool) -> Iterator[RenderedPage]:
     """Render each PDF page to an RGB image with scale tracking."""
     matrix = pymupdf.Matrix(PDF_RENDER_ZOOM, PDF_RENDER_ZOOM)
     with pymupdf.open(stream=file_bytes, filetype="pdf") as doc:
         validate_pdf_document(doc)
         for page_idx in range(len(doc)):
             page = doc[page_idx]
+            if ocr_only and not pdf_page_needs_ocr(page):
+                continue
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             yield RenderedPage(
@@ -101,13 +124,14 @@ def _parse_image_file(file_bytes: bytes) -> list[RenderedPage]:
 
 
 def iter_document_pages(
-    file_bytes: bytes, filename: str = ""
+    file_bytes: bytes, filename: str = "", *, ocr_only: bool = False
 ) -> Generator[RenderedPage, None, None]:
     """Validate a document and render its pages one at a time.
 
     Args:
         file_bytes: Binary document content.
         filename: Optional filename used for hint inspection.
+        ocr_only: Skip PDF pages already containing sufficient native text.
 
     Yields:
         Rendered pages ready for OCR inference; callers own the image lifetime.
@@ -118,7 +142,7 @@ def iter_document_pages(
     is_pdf = file_bytes.startswith(b"%PDF") or filename.lower().endswith(".pdf")
     if is_pdf:
         try:
-            yield from _parse_pdf_pages(file_bytes)
+            yield from _parse_pdf_pages(file_bytes, ocr_only)
         except DocumentTooLargeError:
             raise
         except Exception as exc:

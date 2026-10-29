@@ -18,7 +18,7 @@ Er dient als performantes OCR-Backend in Linux- und Kubernetes-Umgebungen und te
 - **Hohe Genauigkeit:** Modellgestützte Erkennung mit modernem 50-Sprachen-Zeichensatz (`PP-OCRv6_small_rec.onnx`) für vollständige und robuste Unterstützung deutscher Sonderzeichen (ä, ö, ü, ß, Groß-/Kleinschreibung) sowie konfigurierbare Rückwärtskompatibilität zu PP-OCRv3.
 - **Zustandslose REST-API:** Asynchrone FastAPI-Implementierung mit Pydantic V2-Datenmodellen.
 - **Microservice-Observability:** Volle Unterstützung von `X-Correlation-ID` (`asgi-correlation-id`) zur Traceability über Servicegrenzen hinweg.
-- **Stille Logs:** Automatische Filterung routinemäßiger `200 OK`-Healthchecks (`/healthz`, `/readyz`) und C-Level-Dämpfung interner MIOpen-Solver-Meldungen.
+- **Transparente Logs:** Routinemäßige `200 OK`-Healthchecks (`/healthz`, `/readyz`) werden gefiltert; native MIOpen- und GPU-Diagnosen bleiben sichtbar.
 - **Fail-Fast & Transparenz:** Hardware- oder GPU-Fehler werden transparent mit HTTP 503 gemeldet; kein unbemerktes, teures Zurückfallen auf CPU.
 - **Dokumentgrenzen:** Maximal 50 MiB HTTP-Request-Body (inklusive Multipart-Overhead), 100 PDF-Seiten und 20 Millionen gerenderte Pixel pro Seite bzw. Rasterbild. Überschreitungen liefern HTTP 413.
 
@@ -32,7 +32,7 @@ Er dient als performantes OCR-Backend in Linux- und Kubernetes-Umgebungen und te
 src/rocm_ocr/
 ├── config.py       # Pydantic Settings & ROCm/MIOpen Umgebungskonfiguration
 ├── concurrency.py  # Dynamischer Concurrency-Limiter (Semaphore)
-├── engine.py       # RapidOCR Lifecycle, ROCm Session-Patches & Inferenz
+├── engine.py       # RapidOCR Lifecycle, explizite Hybrid-Sessions & Inferenz
 ├── logging.py      # HealthCheckFilter & CorrelationAccessFormatter
 ├── models.py       # Pydantic Schemas (Request/Response API-Verträge)
 ├── parser.py       # PyMuPDF/Pillow Parsing & 144 DPI Skalierung
@@ -57,9 +57,24 @@ Die Texterkennung gliedert sich in drei Stufen:
    - Provider: `CPUExecutionProvider` mit `intra_op_num_threads = 4`
    - **Hintergrund:** Text-Erkennungsmodelle laufen isoliert auf 4 CPU-Threads. Dies verhindert RDNA3-Kernel-Probleme bei dynamischen Zeilenbreiten, liefert Inferenzzeiten von ~850 ms und spart wertvollen VRAM für parallel laufende GPU-Dienste wie Qwen2.5 / Ollama.
 
-### 2.3 C-Level Stderr-Dämpfung
+### 2.3 Explizite Provider und native Diagnosen
 
-MIOpen schreibt Kernel-Lookup-Fehlermeldungen (`Failed to load kernel source: Conv_Winograd_...`) direkt über `std::cerr` (Dateideskriptor 2). In [`engine.py`](../src/rocm_ocr/engine.py) dämpft der Context-Manager `_silence_c_stderr()` mittels `os.dup2(devnull, 2)` diese C-Level-Ausgaben während der Inferenz, ohne Python-Exceptions zu unterdrücken.
+RapidOCR wird ohne globale Monkeypatches initialisiert. Die öffentlichen
+ONNX-Runtime-Session-APIs konfigurieren Detektion und Klassifikation explizit mit
+ROCm und deaktivieren automatischen Runtime-Fallback. Recognition bleibt unabhängig
+vom Modell-Dateinamen auf CPU mit vier Threads. Die Sessions werden beim Start
+zunächst von RapidOCR erzeugt und für die GPU-Stufen einmal neu konfiguriert.
+
+Readiness und Inferenz prüfen beide GPU-Provider, auch nach erfolgreichem Warm-up.
+Ein fehlender oder fehlerhafter Provider liefert HTTP 503 statt erfolgreicher
+CPU-Inferenz. Initialisierungsfehler werden protokolliert; Healthchecks bleiben
+erreichbar. Der Benchmark verwendet dieselbe Session-Konfiguration wie der Dienst.
+
+MIOpen schreibt native Diagnosen direkt auf stderr. Dieser prozessweite
+Dateideskriptor wird nicht mehr umgeleitet: Parallele Requests können dadurch
+weder Logs anderer Threads verschlucken noch stderr dauerhaft deaktivieren.
+Auch nichtfatale Solver-Diagnosen können sichtbar sein, wenn MIOpen einen
+alternativen GPU-Kernel erfolgreich verwendet.
 
 ### 2.4 Begrenzte Dokumentverarbeitung
 
@@ -74,6 +89,15 @@ Verarbeitung frei. Dateilesen und PDF-Preflight liegen innerhalb des
 Concurrency-Limiters; die native PDF-Analyse läuft außerhalb des Event-Loops.
 Die bestehende Parser-Funktion `parse_document()` liefert weiterhin eine Liste;
 für sequenzielle Verarbeitung steht `iter_document_pages()` bereit.
+Bei Request-Abbruch wird ein bereits gestarteter nativer Worker bis zu seinem Ende
+abgewartet, bevor sein Concurrency-Slot freigegeben wird. Wiederholte Abbrüche
+ändern daran nichts; Worker-Fehler werden nicht verworfen.
+
+Born-Digital-Passthrough erfordert ausreichend sichtbaren Text auf jeder Seite.
+Bei gemischten PDFs werden nur OCR-bedürftige Seiten gerendert; native Seiten und
+die ursprüngliche Seitennummerierung bleiben erhalten. Die Sandwich-Erzeugung
+entfernt nur unsichtbare OCR-Texte, ohne sichtbaren Inhalt oder bestehende
+Redaktionsanmerkungen anzuwenden. Dafür wird PyMuPDF mindestens 1.28.2 benötigt.
 
 Zu große Dokumente liefern HTTP 413 mit einem `detail`-Feld; beschädigte PDFs
 liefern HTTP 400. Größere Dokumente müssen vom Aufrufer aufgeteilt oder verkleinert
@@ -101,6 +125,7 @@ docker build -t rocm-ocr:local .
 - `OCR_CONCURRENCY="1"`: Maximale gleichzeitige Inferenzanfragen.
 - `OCR_MODEL_DIR="/models"`: Pfad zu den ONNX-Modelldateien.
 - `API_KEY=""`: Optionaler Pre-Shared Bearer-Token zum Schutz der `/ocr/v1/*`-Endpunkte.
+- `HOME="/home/ubuntu"`: Schreibbarer Benutzerbereich für MIOpen-Konfiguration und Caches.
 
 ### 3.2 Kubernetes / k3s Deployment
 
@@ -108,7 +133,21 @@ Die Kustomize-Manifeste befinden sich in [`deploy/k8s/`](../deploy/k8s/):
 
 - **Host Device Mounts:** Zugriff auf `/dev/kfd` und `/dev/dri` (Grafiktreiber und Kernel Fusion Driver).
 - **Gruppen-IDs:** `supplementalGroups: [44, 109]` (`video`, `render`).
-- **Privileged Mode:** Erforderlich für direkten GPU-Hardwarezugriff in k3s/containerd.
+- **Least Privilege:** Kein privilegierter Container, kein Privilege Escalation,
+  alle Linux-Capabilities entfernt, UID/GID 1000, RuntimeDefault-Seccomp und kein
+  automatisch gemounteter Service-Account-Token.
+- **Dateisystem:** Root-Dateisystem read-only; `/tmp` und `/home/ubuntu` sind
+  schreibbare `emptyDir`-Volumes für Uploads und MIOpen-Caches.
+- **GPU-Freigabe:** HostPath-Mounts und Gruppenrechte allein garantieren keinen
+  Zugriff durch die Device-Cgroup. Die Container-Runtime muss die Geräte explizit
+  freigeben, beispielsweise per geeigneter Device-Plugin-/CDI-Konfiguration.
+  Ohne Freigabe bleibt der Dienst mit HTTP 503 unbereit; es gibt keinen
+  privilegierten oder CPU-basierten automatischen Ausweichpfad.
+- **Validierungsstand:** Die nichtprivilegierte Kubernetes-Konfiguration ist
+  gerendert und statisch geprüft, aber nicht auf dem Zielcluster ausgeführt.
+  Der erfolgreiche lokale GPU-Smoke-Test belegt nicht die Kompatibilität der
+  gehärteten Pod-Sicherheitsrichtlinien. Vor einem Rollout ist ein isolierter
+  GPU-Test im Zielcluster erforderlich.
 - **Probes:**
   - Liveness: `GET /healthz` (Port 8000, 10s Intervall)
   - Readiness: `GET /readyz` (Prüft Engine- und GPU-Bereitschaft)

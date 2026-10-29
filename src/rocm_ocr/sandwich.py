@@ -14,31 +14,24 @@ from collections.abc import Sequence
 from typing import Final
 
 import pymupdf
+from pymupdf.mupdf import (
+    PDF_REDACT_IMAGE_NONE,
+    PDF_REDACT_LINE_ART_NONE,
+    PDF_REDACT_TEXT_REMOVE_INVISIBLE,
+    PdfRedactOptions,
+    pdf_apply_redaction,
+)
 
 from rocm_ocr.models import PageResult
-from rocm_ocr.parser import UnsupportedFormatError, validate_pdf_document
+from rocm_ocr.parser import (
+    UnsupportedFormatError,
+    count_visible_pdf_chars,
+    pdf_page_needs_ocr,
+    validate_pdf_document,
+)
 
 # Standard PDF font (Base-14 Helvetica) - no external TTF files needed
 DEFAULT_STANDARD_FONT: Final[str] = "helv"
-
-
-def _page_has_fullpage_scan(page: pymupdf.Page) -> bool:
-    """Check if page contains a raster image covering >= 70% of its area."""
-    page_area = page.rect.width * page.rect.height
-    for img in page.get_images():
-        for r in page.get_image_rects(img[0]):
-            if (r.width * r.height) >= 0.70 * page_area:
-                return True
-    return False
-
-
-def _count_visible_chars(page: pymupdf.Page) -> int:
-    """Count visible text characters on a page (excluding invisible OCR)."""
-    return sum(
-        len(span.get("chars", ()))
-        for span in page.get_texttrace()
-        if span.get("type") != 3
-    )
 
 
 def is_born_digital_pdf(pdf_bytes: bytes) -> tuple[bool, int, int]:
@@ -60,26 +53,25 @@ def is_born_digital_pdf(pdf_bytes: bytes) -> tuple[bool, int, int]:
         if total_pages == 0:
             return False, 0, 0
 
-        total_visible = sum(_count_visible_chars(page) for page in doc)
-        fullpage_scan_pages = sum(1 for page in doc if _page_has_fullpage_scan(page))
-
-        # Born-digital: has significant visible text and no or minority
-        # fullpage scan pages
-        if total_visible >= 50 and fullpage_scan_pages == 0:
-            return True, total_visible, total_pages
-        if total_visible >= 100 and fullpage_scan_pages < total_pages / 2:
-            return True, total_visible, total_pages
-
-        return False, total_visible, total_pages
+        total_visible = sum(count_visible_pdf_chars(page) for page in doc)
+        all_native = all(not pdf_page_needs_ocr(page) for page in doc)
+        return all_native, total_visible, total_pages
     finally:
         doc.close()
 
 
 def _strip_existing_text(page: pymupdf.Page) -> None:
-    """Remove any existing text layer from a scanned page, preserving images."""
-    if page.get_text().strip():
-        page.add_redact_annot(page.rect)
-        page.apply_redactions(images=0)
+    """Remove invisible OCR text without modifying visible page content."""
+    if any(span["type"] == 3 for span in page.get_texttrace()):
+        annotation = page.add_redact_annot(page.rect, fill=None, cross_out=False)
+        options = PdfRedactOptions()
+        options.black_boxes = 0
+        options.image_method = PDF_REDACT_IMAGE_NONE
+        options.line_art = PDF_REDACT_LINE_ART_NONE
+        options.text = PDF_REDACT_TEXT_REMOVE_INVISIBLE
+        # Applying all page redactions would also commit the user's annotations.
+        if not pdf_apply_redaction(annotation.this, options):
+            raise RuntimeError("Failed to remove the existing invisible OCR layer")
 
 
 def _compute_morph(
@@ -163,8 +155,8 @@ def generate_sandwich_pdf(
 ) -> bytes:
     """Inject an invisible OCR text layer into a PDF document using OCR results.
 
-    Strips any pre-existing text layer from the page to prevent duplicate text,
-    then embeds the new OCR text boxes with horizontal scaling.
+    Strips pre-existing invisible OCR text to prevent duplicates, preserving
+    native visible content, then embeds new OCR text boxes with horizontal scaling.
 
     Args:
         pdf_bytes: Raw binary content of the source PDF.

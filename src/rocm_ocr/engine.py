@@ -1,14 +1,14 @@
 import logging
-import os
-from collections.abc import Generator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import onnxruntime as ort
+from onnxruntime.capi import (
+    onnxruntime_pybind11_state as ort_errors,  # ty: ignore[unresolved-import]
+)
 from rapidocr_onnxruntime import RapidOCR
-from rapidocr_onnxruntime.utils.infer_engine import OrtInferSession
+from rapidocr_onnxruntime.utils.infer_engine import ONNXRuntimeError
 
 from rocm_ocr.config import Settings, settings
 from rocm_ocr.models import BoundingBox
@@ -16,23 +16,20 @@ from rocm_ocr.parser import RenderedPage
 
 ROCM_PROVIDER = "ROCMExecutionProvider"
 logger = logging.getLogger(__name__)
-
-
-@contextmanager
-def _silence_c_stderr() -> Generator[None, None, None]:
-    """Redirect C-level stderr (fd 2) to devnull to suppress MIOpen search logs."""
-    try:
-        null_fd = os.open(os.devnull, os.O_WRONLY)
-        saved_stderr = os.dup(2)
-        try:
-            os.dup2(null_fd, 2)
-            yield
-        finally:
-            os.dup2(saved_stderr, 2)
-            os.close(saved_stderr)
-            os.close(null_fd)
-    except OSError:
-        yield
+# ORT exposes these exception classes from its untyped native extension.
+ENGINE_ERRORS: tuple[type[Exception], ...] = (
+    OSError,
+    ValueError,
+    RuntimeError,
+    ONNXRuntimeError,
+    ort_errors.EPFail,
+    ort_errors.Fail,
+    ort_errors.InvalidArgument,
+    ort_errors.InvalidGraph,
+    ort_errors.NoSuchFile,
+    ort_errors.NotImplemented,
+    ort_errors.RuntimeException,
+)
 
 
 class GpuInferenceError(Exception):
@@ -47,45 +44,48 @@ class GpuInferenceError(Exception):
         self.error_message = error_message
 
 
-def _patch_rapidocr_rocm() -> None:
-    """Ensure OrtInferSession prioritizes ROCMExecutionProvider when available."""
-    original_init = OrtInferSession.__init__
-    original_get_ep_list = OrtInferSession._get_ep_list
-
-    def _rocm_init(self: OrtInferSession, config: dict[str, Any]) -> None:
-        setattr(self, "_model_path", str(config.get("model_path", "")))  # noqa: B010
-        if config.get("intra_op_num_threads", -1) == -1:
-            config["intra_op_num_threads"] = 4
-        original_init(self, config)
-
-    def _rocm_get_ep_list(self: OrtInferSession) -> list[tuple[str, dict[str, Any]]]:
-        ep_list = original_get_ep_list(self)
-        available = ort.get_available_providers()
-        model_str = getattr(self, "_model_path", "").lower()
-        is_rec = (
-            "_rec" in model_str
-            or "latin" in model_str
-            or "rec_" in model_str
-            or "rec.onnx" in model_str
+def _require_rocm_session(session: ort.InferenceSession, stage_name: str) -> None:
+    providers = session.get_providers()
+    if not providers or providers[0] != ROCM_PROVIDER:
+        raise GpuInferenceError(
+            "ROCm GPU inference failed",
+            ROCM_PROVIDER,
+            f"{stage_name} uses {providers}; required {ROCM_PROVIDER}",
         )
-        if is_rec:
-            # Recognition models execute on CPU (intra_op_num_threads=4) to prevent
-            # RDNA3 kernel issues and preserve GPU VRAM for concurrent LLMs (Qwen2.5).
-            return [ep for ep in ep_list if ep[0] != ROCM_PROVIDER]
 
-        if ROCM_PROVIDER in available:
-            rocm_opts = {
-                "device_id": 0,
-                "arena_extend_strategy": "kNextPowerOfTwo",
-                "miopen_conv_exhaustive_search": False,
-                "do_copy_in_default_stream": True,
-            }
-            ep_list = [ep for ep in ep_list if ep[0] != ROCM_PROVIDER]
-            ep_list.insert(0, (ROCM_PROVIDER, rocm_opts))
-        return ep_list
 
-    OrtInferSession.__init__ = _rocm_init
-    OrtInferSession._get_ep_list = _rocm_get_ep_list
+def create_rapidocr(**model_kwargs: str) -> RapidOCR:
+    """Build the hybrid pipeline using per-instance public ORT provider APIs."""
+    if ROCM_PROVIDER not in ort.get_available_providers():
+        raise GpuInferenceError(
+            "ROCm GPU initialization failed",
+            ROCM_PROVIDER,
+            "ROCMExecutionProvider is not available",
+        )
+    engine = RapidOCR(
+        **model_kwargs,
+        intra_op_num_threads=4,
+        det_use_cuda=False,
+        det_use_dml=False,
+        cls_use_cuda=False,
+        cls_use_dml=False,
+        rec_use_cuda=False,
+        rec_use_dml=False,
+    )
+    rocm_options = {
+        "device_id": 0,
+        "arena_extend_strategy": "kNextPowerOfTwo",
+        "miopen_conv_exhaustive_search": False,
+        "do_copy_in_default_stream": True,
+    }
+    for name, stage in (
+        ("Detection", engine.text_det),
+        ("Classification", engine.text_cls),
+    ):
+        stage.infer.session.set_providers([(ROCM_PROVIDER, rocm_options)])
+        stage.infer.session.disable_fallback()
+        _require_rocm_session(stage.infer.session, name)
+    return engine
 
 
 def _find_candidate_file(directory: Path, candidates: list[str]) -> str | None:
@@ -199,62 +199,82 @@ class OcrEngine:
     """Manages the RapidOCR lifecycle and ROCm execution provider interactions."""
 
     def __init__(self, cfg: Settings = settings) -> None:
-        """Initialize the OCR engine with configuration and provider patch."""
+        """Initialize hybrid sessions, retaining startup errors for HTTP 503."""
         self._config = cfg
         self._config.apply_rocm_env_overrides()
-        _patch_rapidocr_rocm()
-
         model_kwargs = _resolve_model_kwargs(
             self._config.ocr_model_dir,
             self._config.ocr_rec_model_path,
             self._config.ocr_rec_keys_path,
         )
-        self._engine = RapidOCR(**model_kwargs)
-        self._active_provider = self._detect_active_provider()
+        self._engine: RapidOCR | None = None
         self._is_ready = False
-
-    def _detect_active_provider(self) -> str:
-        """Detect the currently loaded execution provider from the active session."""
+        self._initialization_error = ""
         try:
-            providers = self._engine.text_det.infer.session.get_providers()
-            return str(providers[0]) if providers else "UnknownExecutionProvider"
-        except Exception:
-            return "UnknownExecutionProvider"
+            self._engine = create_rapidocr(**model_kwargs)
+        except (GpuInferenceError, *ENGINE_ERRORS) as exc:
+            self._initialization_error = str(exc)
+            if isinstance(exc, GpuInferenceError):
+                self._initialization_error = exc.error_message
+            logger.error(
+                "OCR engine initialization failed: %s", self._initialization_error
+            )
+
+    def _require_gpu(self) -> RapidOCR:
+        """Reject unavailable engines and fallback in either GPU stage."""
+        if self._engine is None:
+            raise GpuInferenceError(
+                "ROCm GPU inference failed", ROCM_PROVIDER, self._initialization_error
+            )
+        for name, stage in (
+            ("Detection", self._engine.text_det),
+            ("Classification", self._engine.text_cls),
+        ):
+            _require_rocm_session(stage.infer.session, name)
+        return self._engine
 
     @property
     def active_provider(self) -> str:
         """Name of the active ONNX Runtime execution provider."""
-        return self._active_provider
+        if self._engine is None:
+            return "UnavailableExecutionProvider"
+        providers = self._engine.text_det.infer.session.get_providers()
+        return str(providers[0]) if providers else "UnavailableExecutionProvider"
 
     def is_ready(self) -> bool:
         """Verify that the engine and execution provider can perform inference."""
-        if self._is_ready:
-            return True
         try:
-            dummy_arr = np.ones((64, 64, 3), dtype=np.uint8) * 255
-            with _silence_c_stderr():
-                self._engine(dummy_arr)
-            self._is_ready = True
+            engine = self._require_gpu()
+            if not self._is_ready:
+                dummy_arr = np.ones((64, 64, 3), dtype=np.uint8) * 255
+                engine(dummy_arr)
+                self._require_gpu()
+                self._is_ready = True
             return True
-        except Exception as exc:
-            logger.warning("Readiness probe check failed: %s", exc, exc_info=True)
+        except (GpuInferenceError, *ENGINE_ERRORS) as exc:
+            self._is_ready = False
+            detail = (
+                exc.error_message if isinstance(exc, GpuInferenceError) else str(exc)
+            )
+            logger.warning("Readiness probe check failed: %s", detail, exc_info=True)
             return False
 
     def infer_page(self, page: RenderedPage) -> list[BoundingBox]:
         """Execute OCR detection, orientation classification, and text recognition."""
-        img_np = np.array(page.image)
         try:
-            with _silence_c_stderr():
-                raw_results, _ = self._engine(img_np)
-        except Exception as exc:
+            engine = self._require_gpu()
+            raw_results, _ = engine(np.array(page.image))
+            self._require_gpu()
+        except GpuInferenceError:
             self._is_ready = False
-            if self._active_provider == ROCM_PROVIDER or "HIP" in str(exc):
-                raise GpuInferenceError(
-                    detail="ROCm GPU inference failed",
-                    provider_attempted=ROCM_PROVIDER,
-                    error_message=str(exc),
-                ) from exc
             raise
+        except ENGINE_ERRORS as exc:
+            self._is_ready = False
+            raise GpuInferenceError(
+                detail="ROCm GPU inference failed",
+                provider_attempted=ROCM_PROVIDER,
+                error_message=str(exc),
+            ) from exc
 
         if not raw_results:
             return []

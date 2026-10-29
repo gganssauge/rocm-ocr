@@ -66,6 +66,9 @@ Dynamically adjusts runtime parameters such as maximum concurrency.
   ```
 
 - **Semantics:** Concurrency is managed via an `asyncio.Semaphore` (or token pool). Changing this value takes effect immediately for incoming requests.
+- **Cancellation:** An aborted request retains its slot until an already-running
+  native worker finishes, even after repeated cancellation. Worker failures still
+  propagate; cancellation does not silently discard them.
 
 ### 2.2 `POST /ocr/v1/predict`
 
@@ -114,6 +117,17 @@ Executes OCR inference on an uploaded document or image.
 
 Executes OCR inference on an uploaded PDF and returns a searchable sandwich PDF with an invisible text layer (`render_mode=3`).
 
+- Only documents whose **every page** has at least 50 visible native characters
+  and no raster image covering at least 70% of the page are passed through as
+  born-digital. A majority of native pages is not sufficient.
+- Mixed documents receive OCR on pages requiring it. Native pages remain
+  unchanged; page numbering and `X-Total-Pages` refer to the complete document.
+- Existing invisible OCR text is removed without removing visible text, vector
+  graphics, images, or applying the user's pending redaction annotations.
+- `X-Extracted-Chars` includes existing visible native characters and newly
+  recognized OCR characters. Born-digital passthrough continues to report
+  `X-Execution-Provider: Native`, `X-Born-Digital: true` and zero inference time.
+
 - **Request:**
   - Content-Type: `multipart/form-data`
   - Body: `file` (Binary content of PDF)
@@ -130,7 +144,15 @@ Executes OCR inference on an uploaded PDF and returns a searchable sandwich PDF 
 ### 2.4 `GET /healthz` & `GET /readyz`
 
 - `GET /healthz`: Returns HTTP 200 as soon as the HTTP server is listening.
-- `GET /readyz`: Verifies that ONNX Runtime and the configured Execution Provider (`ROCMExecutionProvider` or fallback) are loaded and capable of executing inference.
+- `GET /readyz`: Returns HTTP 200 only when both detection and classification use
+  `ROCMExecutionProvider` and the warm-up succeeds. Recognition intentionally uses
+  CPU with four threads; this is the configured hybrid pipeline, not GPU fallback.
+  Missing ROCm, provider initialization failures, and either GPU stage falling back
+  to CPU return HTTP 503. Provider checks are repeated even after a successful
+  warm-up. `/healthz` remains available for an unready engine.
+- ONNX Runtime's automatic runtime fallback is disabled for both GPU sessions.
+  The service verifies their providers before and after each inference and reports
+  failures using the structured HTTP 503 hardware error response.
 
 ### 2.5 `GET /scalar` & `GET /docs`
 

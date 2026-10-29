@@ -15,7 +15,7 @@ import numpy as np
 from rapidocr_onnxruntime import RapidOCR
 
 from rocm_ocr.config import settings
-from rocm_ocr.engine import _patch_rapidocr_rocm, _silence_c_stderr
+from rocm_ocr.engine import create_rapidocr
 from rocm_ocr.parser import parse_document
 
 MODELS_DIR = Path("models")
@@ -54,12 +54,11 @@ DOCUMENTS = [
 
 
 def init_engine(rec_model_path: str, rec_keys_path: str) -> RapidOCR:
-    """Initialize RapidOCR with specified rec model and patched ROCm sessions."""
+    """Initialize RapidOCR with specified models and explicit hybrid providers."""
     settings.apply_rocm_env_overrides()
-    _patch_rapidocr_rocm()
 
     det_model = str(MODELS_DIR / "ch_PP-OCRv4_det_infer.onnx")
-    return RapidOCR(
+    return create_rapidocr(
         det_model_path=det_model,
         rec_model_path=rec_model_path,
         rec_keys_path=rec_keys_path,
@@ -68,10 +67,9 @@ def init_engine(rec_model_path: str, rec_keys_path: str) -> RapidOCR:
 
 def run_benchmark_on_page(engine: RapidOCR, img_np: np.ndarray) -> dict[str, Any]:
     """Run inference on a single page image and measure timings and output."""
-    with _silence_c_stderr():
-        start = time.perf_counter()
-        results, elapse_list = engine(img_np)
-        total_time = (time.perf_counter() - start) * 1000
+    start = time.perf_counter()
+    results, elapse_list = engine(img_np)
+    total_time = (time.perf_counter() - start) * 1000
 
     boxes = []
     texts = []
@@ -112,8 +110,7 @@ def main() -> None:
         engines[cfg["name"]] = init_engine(cfg["rec_model_path"], cfg["rec_keys_path"])
         # Warmup dummy inference
         dummy = np.ones((64, 64, 3), dtype=np.uint8) * 255
-        with _silence_c_stderr():
-            engines[cfg["name"]](dummy)
+        engines[cfg["name"]](dummy)
 
     print("\n" + "=" * 80)
     print("⏱️  LATENCY BENCHMARKS")
