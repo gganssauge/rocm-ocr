@@ -1,11 +1,13 @@
 """Tests for the sandwich PDF generator module."""
 
 import io
+from unittest.mock import MagicMock
 
 import pymupdf
+import pytest
 
 from rocm_ocr.models import BoundingBox, PageResult
-from rocm_ocr.sandwich import generate_sandwich_pdf
+from rocm_ocr.sandwich import generate_sandwich_pdf, is_born_digital_pdf
 
 
 def _create_minimal_pdf() -> bytes:
@@ -109,6 +111,27 @@ def test_generate_sandwich_pdf_empty_boxes():
     ]
     result_bytes = generate_sandwich_pdf(pdf_bytes, pages)
     assert len(result_bytes) > 0
+
+
+@pytest.mark.parametrize("operation", ["inspect", "generate"])
+def test_pdf_is_closed_when_processing_fails(
+    monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    """Release native PDF resources even when validation or text insertion fails."""
+    data = _create_minimal_pdf()
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    monkeypatch.setattr("rocm_ocr.sandwich.pymupdf.open", MagicMock(return_value=doc))
+    failure = MagicMock(side_effect=RuntimeError("processing failed"))
+    if operation == "inspect":
+        monkeypatch.setattr("rocm_ocr.sandwich.validate_pdf_document", failure)
+        with pytest.raises(RuntimeError, match="processing failed"):
+            is_born_digital_pdf(data)
+    else:
+        monkeypatch.setattr("rocm_ocr.sandwich._strip_existing_text", failure)
+        pages = [PageResult(page_number=0, width=595, height=842)]
+        with pytest.raises(RuntimeError, match="processing failed"):
+            generate_sandwich_pdf(data, pages)
+    assert doc.is_closed
 
 
 def test_is_born_digital_pdf_detection():

@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import numpy as np
@@ -8,7 +9,7 @@ from onnxruntime.capi import (
     onnxruntime_pybind11_state as ort_errors,  # ty: ignore[unresolved-import]
 )
 from rapidocr_onnxruntime import RapidOCR
-from rapidocr_onnxruntime.utils.infer_engine import ONNXRuntimeError
+from rapidocr_onnxruntime.utils.infer_engine import ONNXRuntimeError, OrtInferSession
 
 from rocm_ocr.config import Settings, settings
 from rocm_ocr.models import BoundingBox
@@ -55,6 +56,19 @@ def _require_rocm_session(session: ort.InferenceSession, stage_name: str) -> Non
         )
 
 
+class _SerializedGpuInference(OrtInferSession):
+    """Serialize calls to one GPU session while keeping its native metadata."""
+
+    def __init__(self, inference: OrtInferSession) -> None:
+        self.session = inference.session
+        self._inference = inference
+        self._lock = Lock()
+
+    def __call__(self, input_content: np.ndarray) -> np.ndarray:
+        with self._lock:
+            return self._inference(input_content)
+
+
 def create_rapidocr(**model_kwargs: str) -> RapidOCR:
     """Build the hybrid pipeline using per-instance public ORT provider APIs."""
     if ROCM_PROVIDER not in ort.get_available_providers():
@@ -86,36 +100,28 @@ def create_rapidocr(**model_kwargs: str) -> RapidOCR:
         stage.infer.session.set_providers([(ROCM_PROVIDER, rocm_options)])
         stage.infer.session.disable_fallback()
         _require_rocm_session(stage.infer.session, name)
+        stage.infer = _SerializedGpuInference(stage.infer)
     return engine
 
 
-def _find_candidate_file(directory: Path, candidates: list[str]) -> str | None:
-    """Find the first matching candidate file in directory."""
-    for cand in candidates:
-        cand_path = directory / cand
-        if cand_path.is_file():
-            return str(cand_path)
-    return None
-
-
 def _find_in_dirs(dirs: list[Path], candidates: list[str]) -> str | None:
-    """Find candidate file across a list of directories in order."""
-    for d in dirs:
-        found = (
-            _find_candidate_file(d, candidates) if d.is_file() or d.exists() else None
-        )
-        if found:
-            return found
-    return None
+    """Find the first file, prioritizing directories before candidate names."""
+    return next(
+        (
+            str(path)
+            for d in dirs
+            for name in candidates
+            if (path := d / name).is_file()
+        ),
+        None,
+    )
 
 
 def _collect_model_dirs(model_dir: Path) -> list[Path]:
     """Return directories to inspect for models."""
     dirs = [model_dir]
     if model_dir == Path("/models") and not model_dir.exists():
-        local_models = Path("models")
-        if local_models.exists():
-            dirs.append(local_models)
+        dirs.append(Path("models"))
     return [d for d in dirs if d.exists()]
 
 
@@ -128,17 +134,12 @@ def _resolve_dict_path(dirs: list[Path], rec_model_path: str) -> str | None:
     rec_model = rec_model_path.lower()
     if "latin" in rec_model or "pp-ocrv3" in rec_model:
         dict_candidates = [LATIN_DICT_FILENAME, "dict.txt"]
-        bundled_fallback = Path(__file__).parent / "resources" / LATIN_DICT_FILENAME
     else:
         dict_candidates = [PPOCR_V6_DICT_FILENAME, LATIN_DICT_FILENAME, "dict.txt"]
-        bundled_fallback = Path(__file__).parent / "resources" / PPOCR_V6_DICT_FILENAME
-
-    found = _find_in_dirs(dirs, dict_candidates)
-    if found:
-        return found
-    if bundled_fallback.is_file():
-        return str(bundled_fallback)
-    return None
+    bundled_fallback = Path(__file__).parent / "resources" / dict_candidates[0]
+    return _find_in_dirs(dirs, dict_candidates) or (
+        str(bundled_fallback) if bundled_fallback.is_file() else None
+    )
 
 
 def _resolve_model_kwargs(
@@ -147,11 +148,14 @@ def _resolve_model_kwargs(
     rec_keys_path: Path | None = None,
 ) -> dict[str, str]:
     """Inspect model directory and map custom ONNX model paths if present."""
-    kwargs: dict[str, str] = {}
-    if rec_model_path and rec_model_path.is_file():
-        kwargs["rec_model_path"] = str(rec_model_path)
-    if rec_keys_path and rec_keys_path.is_file():
-        kwargs["rec_keys_path"] = str(rec_keys_path)
+    kwargs = {
+        key: str(path)
+        for key, path in (
+            ("rec_model_path", rec_model_path),
+            ("rec_keys_path", rec_keys_path),
+        )
+        if path is not None and path.is_file()
+    }
 
     dirs = _collect_model_dirs(model_dir)
 
@@ -172,15 +176,15 @@ def _resolve_model_kwargs(
         ),
     ]
     for key, candidates in lookup_map:
-        if key not in kwargs:
-            found = _find_in_dirs(dirs, candidates)
-            if found:
-                kwargs[key] = found
+        if key not in kwargs and (found := _find_in_dirs(dirs, candidates)):
+            kwargs[key] = found
 
-    if "rec_keys_path" not in kwargs and "rec_model_path" in kwargs:
-        dict_path = _resolve_dict_path(dirs, kwargs["rec_model_path"])
-        if dict_path:
-            kwargs["rec_keys_path"] = dict_path
+    if (
+        "rec_keys_path" not in kwargs
+        and "rec_model_path" in kwargs
+        and (dict_path := _resolve_dict_path(dirs, kwargs["rec_model_path"]))
+    ):
+        kwargs["rec_keys_path"] = dict_path
     return kwargs
 
 
@@ -201,12 +205,9 @@ class OcrEngine:
 
     def __init__(self, cfg: Settings = settings) -> None:
         """Initialize hybrid sessions, retaining startup errors for HTTP 503."""
-        self._config = cfg
-        self._config.apply_rocm_env_overrides()
+        cfg.apply_rocm_env_overrides()
         model_kwargs = _resolve_model_kwargs(
-            self._config.ocr_model_dir,
-            self._config.ocr_rec_model_path,
-            self._config.ocr_rec_keys_path,
+            cfg.ocr_model_dir, cfg.ocr_rec_model_path, cfg.ocr_rec_keys_path
         )
         self._engine: RapidOCR | None = None
         self._is_ready = False
@@ -214,9 +215,9 @@ class OcrEngine:
         try:
             self._engine = create_rapidocr(**model_kwargs)
         except (GpuInferenceError, *ENGINE_ERRORS) as exc:
-            self._initialization_error = str(exc)
-            if isinstance(exc, GpuInferenceError):
-                self._initialization_error = exc.error_message
+            self._initialization_error = (
+                exc.error_message if isinstance(exc, GpuInferenceError) else str(exc)
+            )
             logger.error(
                 "OCR engine initialization failed: %s", self._initialization_error
             )
@@ -280,10 +281,11 @@ class OcrEngine:
         if not raw_results:
             return []
 
-        boxes: list[BoundingBox] = []
-        for item in raw_results:
-            quad, text, score = item[0], str(item[1]), float(item[2])
-            bbox = _convert_quad_to_bbox(quad, page.scale)
-            conf = max(0.0, min(1.0, round(score, 4)))
-            boxes.append(BoundingBox(text=text, bbox=bbox, confidence=conf))
-        return boxes
+        return [
+            BoundingBox(
+                text=str(item[1]),
+                bbox=_convert_quad_to_bbox(item[0], page.scale),
+                confidence=max(0.0, min(1.0, round(float(item[2]), 4))),
+            )
+            for item in raw_results
+        ]

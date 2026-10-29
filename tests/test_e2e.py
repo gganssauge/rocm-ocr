@@ -2,11 +2,15 @@
 
 import asyncio
 from pathlib import Path
+from threading import Barrier
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
+from rocm_ocr.engine import ROCM_PROVIDER, OcrEngine
 from rocm_ocr.main import app
+from rocm_ocr.models import BoundingBox
+from rocm_ocr.parser import RenderedPage
 
 PDF_FIXTURE_PATH = Path("2025-08-25 Vodafone Vodafone Aktivierungscode.pdf")
 TXT_FIXTURE_PATH = Path("2025-08-25 Vodafone Vodafone Aktivierungscode.txt")
@@ -118,8 +122,10 @@ async def test_e2e_predict_bundestag_drucksache(e2e_client: AsyncClient) -> None
 
 
 @pytest.mark.asyncio
-async def test_e2e_setup_and_concurrent_predict(e2e_client: AsyncClient) -> None:
-    """Verify runtime concurrency adjustment and concurrent document inference."""
+async def test_e2e_setup_and_concurrent_predict(
+    e2e_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Require overlapping OCR workers and unchanged results from real GPU inference."""
     assert GERMAN_INVOICE_PDF.is_file()
     pdf_bytes = GERMAN_INVOICE_PDF.read_bytes()
 
@@ -127,13 +133,31 @@ async def test_e2e_setup_and_concurrent_predict(e2e_client: AsyncClient) -> None
     assert setup_resp.status_code == 200
     assert setup_resp.json()["concurrency"] == 2
 
-    async def _send_predict() -> int:
+    workers = Barrier(2)
+    original_infer = OcrEngine.infer_page
+
+    def concurrent_infer(engine: OcrEngine, page: RenderedPage) -> list[BoundingBox]:
+        workers.wait(timeout=5)
+        return original_infer(engine, page)
+
+    async def _send_predict() -> Response:
         files = {"file": (GERMAN_INVOICE_PDF.name, pdf_bytes, "application/pdf")}
-        resp = await e2e_client.post("/ocr/v1/predict", files=files)
-        return resp.status_code
+        return await e2e_client.post("/ocr/v1/predict", files=files)
 
-    results = await asyncio.gather(_send_predict(), _send_predict())
-    assert results == [200, 200]
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(OcrEngine, "infer_page", concurrent_infer)
+            responses = await asyncio.gather(_send_predict(), _send_predict())
+        assert [response.status_code for response in responses] == [200, 200]
 
-    # Reset back to default concurrency
-    await e2e_client.post("/ocr/v1/setup", json={"concurrency": 1})
+        baseline = await _send_predict()
+        assert baseline.status_code == 200
+        expected_pages = baseline.json()["pages"]
+        assert "RE-2026-0042" in " ".join(
+            box["text"] for page in expected_pages for box in page["boxes"]
+        )
+        for response in responses:
+            assert response.json()["execution_provider"] == ROCM_PROVIDER
+            assert response.json()["pages"] == expected_pages
+    finally:
+        await e2e_client.post("/ocr/v1/setup", json={"concurrency": 1})

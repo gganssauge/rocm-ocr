@@ -76,8 +76,12 @@ bash scripts/setup_rocm_compat.sh
 LD_LIBRARY_PATH="$PWD/lib/rocm${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
   uv run uvicorn rocm_ocr.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Run comprehensive test suite
-uv run pytest
+# Run comprehensive test suite with the same ROCm loader path
+LD_LIBRARY_PATH="$PWD/lib/rocm${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  uv run pytest
+
+# Run GPU-independent tests only
+uv run pytest --ignore=tests/test_e2e.py
 ```
 
 ### 2. Docker Container

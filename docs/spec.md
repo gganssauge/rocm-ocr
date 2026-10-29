@@ -66,6 +66,11 @@ Dynamically adjusts runtime parameters such as maximum concurrency.
   ```
 
 - **Semantics:** Concurrency is managed via an `asyncio.Semaphore` (or token pool). Changing this value takes effect immediately for incoming requests.
+- **GPU session safety:** Each shared detection/classification session serializes
+  its own native inference calls. Different GPU sessions, rendering, and CPU
+  recognition can still execute concurrently. The concurrency setting limits
+  admitted request work, not simultaneous calls into the same GPU session.
+  These process-local locks do not reserve the GPU or coordinate other services.
 - **Cancellation:** An aborted request retains its slot until an already-running
   native worker finishes, even after repeated cancellation. Worker failures still
   propagate; cancellation does not silently discard them.

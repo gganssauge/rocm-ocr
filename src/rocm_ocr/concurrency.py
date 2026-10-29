@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from types import TracebackType
+from typing import Self
 
 
 async def run_in_thread[**P, T](
@@ -32,11 +33,7 @@ class DynamicConcurrencyLimiter:
     """Manages dynamic concurrency limits for asynchronous OCR tasks."""
 
     def __init__(self, initial_concurrency: int = 1) -> None:
-        """Initialize the limiter with an initial concurrency capacity.
-
-        Args:
-            initial_concurrency: Maximum number of simultaneous tasks. Must be >= 1.
-        """
+        """Initialize with a maximum concurrency of at least one."""
         if initial_concurrency < 1:
             raise ValueError("Concurrency must be greater than or equal to 1")
 
@@ -55,11 +52,7 @@ class DynamicConcurrencyLimiter:
         return self._active_tasks
 
     async def update_concurrency(self, new_concurrency: int) -> None:
-        """Dynamically update maximum concurrency and notify waiting tasks.
-
-        Args:
-            new_concurrency: The new capacity limit (must be >= 1).
-        """
+        """Set capacity (at least one) and notify waiting tasks."""
         if new_concurrency < 1:
             raise ValueError("Concurrency must be greater than or equal to 1")
 
@@ -80,7 +73,7 @@ class DynamicConcurrencyLimiter:
             self._active_tasks = max(0, self._active_tasks - 1)
             self._condition.notify_all()
 
-    async def __aenter__(self) -> "DynamicConcurrencyLimiter":
+    async def __aenter__(self) -> Self:
         """Acquire a concurrency permit upon entering context."""
         await self.acquire()
         return self

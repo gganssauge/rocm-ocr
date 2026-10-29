@@ -37,17 +37,13 @@ def setup_logging() -> None:
     access_logger.addFilter(health_filter)
     access_logger.addFilter(cid_filter)
 
-    # If access logger has no handlers attached yet, configure default handler
     if not access_logger.handlers:
         handler = logging.StreamHandler()
-        handler.setFormatter(CorrelationAccessFormatter())
         handler.addFilter(health_filter)
-        handler.addFilter(cid_filter)
         access_logger.addHandler(handler)
-    else:
-        for handler in access_logger.handlers:
-            handler.addFilter(cid_filter)
-            handler.setFormatter(CorrelationAccessFormatter())
+    for handler in access_logger.handlers:
+        handler.addFilter(cid_filter)
+        handler.setFormatter(CorrelationAccessFormatter())
 
     for name in ("uvicorn", "uvicorn.error", ""):
         log = logging.getLogger(name)

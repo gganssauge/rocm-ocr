@@ -2,9 +2,13 @@
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
+from threading import Barrier, Event, Lock, Thread
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 from PIL import Image
 from rapidocr_onnxruntime.utils.infer_engine import ONNXRuntimeError
@@ -15,12 +19,35 @@ from rocm_ocr.engine import (
     GpuInferenceError,
     OcrEngine,
     _convert_quad_to_bbox,
+    _find_in_dirs,
+    _resolve_dict_path,
     _resolve_model_kwargs,
     create_rapidocr,
 )
+from rocm_ocr.models import BoundingBox
 from rocm_ocr.parser import RenderedPage
 
 pytestmark = pytest.mark.usefixtures("native_rapid")
+
+
+@pytest.fixture
+def native_pipeline(native_rapid: MagicMock) -> MagicMock:
+    """Keep the pipeline callable while simulating its external native stages."""
+
+    def run(session: MagicMock, image: object) -> object:
+        return session.run(["output"], {"input": image})
+
+    for stage in (native_rapid.text_det, native_rapid.text_cls):
+        stage.infer.side_effect = partial(run, stage.infer.session)
+
+    def pipeline(image: object) -> tuple[None, None]:
+        for stage in (native_rapid.text_det, native_rapid.text_cls):
+            stage.infer(image)
+        native_rapid.text_rec(image)
+        return None, None
+
+    native_rapid.side_effect = pipeline
+    return native_rapid
 
 
 def test_convert_quad_to_bbox() -> None:
@@ -61,6 +88,70 @@ def test_resolve_model_kwargs_ppocrv6(tmp_path: Path) -> None:
     assert "cls_model_path" in kwargs
     assert kwargs["rec_model_path"].endswith("PP-OCRv6_small_rec.onnx")
     assert kwargs["rec_keys_path"].endswith("ppocrv6_dict.txt")
+
+
+def test_model_lookup_preserves_directory_and_candidate_priority(
+    tmp_path: Path,
+) -> None:
+    """Prefer the first directory, then the first existing filename within it."""
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "fallback.onnx").touch()
+    (second / "preferred.onnx").touch()
+    dirs = [tmp_path / "missing", first, second]
+    candidates = ["preferred.onnx", "fallback.onnx"]
+    assert _find_in_dirs(dirs, candidates) == str(first / "fallback.onnx")
+    (first / "preferred.onnx").touch()
+    assert _find_in_dirs(dirs, candidates) == str(first / "preferred.onnx")
+
+
+@pytest.mark.parametrize("valid_override", [False, True])
+def test_explicit_recognition_paths_override_discovered_files(
+    tmp_path: Path, valid_override: bool
+) -> None:
+    """Missing overrides must still fall back to discovery; valid ones win."""
+    discovered_model = tmp_path / "rec.onnx"
+    discovered_dict = tmp_path / "dict.txt"
+    explicit_model = tmp_path / "custom.onnx"
+    explicit_dict = tmp_path / "custom.txt"
+    discovered_model.touch()
+    discovered_dict.touch()
+    if valid_override:
+        explicit_model.touch()
+        explicit_dict.touch()
+    kwargs = _resolve_model_kwargs(tmp_path, explicit_model, explicit_dict)
+    assert kwargs == {
+        "rec_model_path": str(explicit_model if valid_override else discovered_model),
+        "rec_keys_path": str(explicit_dict if valid_override else discovered_dict),
+    }
+
+
+@pytest.mark.parametrize(
+    ("model_name", "dictionary"),
+    [
+        ("LATIN_PP-OCRv3_rec.onnx", "latin_dict.txt"),
+        ("PP-OCRv3_rec.onnx", "latin_dict.txt"),
+        ("PP-OCRv6_small_rec.onnx", "ppocrv6_dict.txt"),
+    ],
+)
+def test_dictionary_lookup_preserves_bundled_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_name: str,
+    dictionary: str,
+) -> None:
+    """Prefer local generic dictionaries to bundled ones, without mixing models."""
+    monkeypatch.setattr("rocm_ocr.engine.__file__", str(tmp_path / "engine.py"))
+    assert _resolve_dict_path([], model_name) is None
+    resources = tmp_path / "resources"
+    resources.mkdir()
+    (resources / dictionary).touch()
+    assert _resolve_dict_path([], model_name) == str(resources / dictionary)
+    (tmp_path / "dict.txt").touch()
+    assert _resolve_dict_path([tmp_path], model_name) == str(tmp_path / "dict.txt")
+    (tmp_path / dictionary).touch()
+    assert _resolve_dict_path([tmp_path], model_name) == str(tmp_path / dictionary)
 
 
 def test_ocr_engine_is_ready() -> None:
@@ -202,3 +293,98 @@ def test_shared_factory_refuses_provider_fallback(native_rapid: MagicMock) -> No
     with pytest.raises(GpuInferenceError) as error:
         create_rapidocr()
     assert "Classification uses" in error.value.error_message
+
+
+@pytest.mark.parametrize("stage_name", ["text_det", "text_cls"])
+def test_concurrent_pages_can_share_a_non_reentrant_gpu_session(
+    native_pipeline: MagicMock, stage_name: str
+) -> None:
+    """Concurrent page workers must not enter the same native GPU session."""
+    busy = Lock()
+    collision = Event()
+    first_call = Event()
+    workers = Barrier(2)
+
+    def native_run(outputs: list[str], inputs: dict[str, object]) -> list[object]:
+        if not busy.acquire(blocking=False):
+            collision.set()
+            raise RuntimeError("Concurrent GPU session access")
+        try:
+            if not first_call.is_set():
+                first_call.set()
+                collision.wait(timeout=0.5)
+            return []
+        finally:
+            busy.release()
+
+    getattr(native_pipeline, stage_name).infer.session.run.side_effect = native_run
+    engine = OcrEngine(Settings())
+
+    def infer() -> list[BoundingBox]:
+        with Image.new("RGB", (64, 64)) as image:
+            workers.wait(timeout=3)
+            return engine.infer_page(RenderedPage(0, image, 64, 64, 1))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [pool.submit(infer) for _ in range(2)]
+        assert [result.result(timeout=3) for result in results] == [[], []]
+
+
+def test_cpu_recognition_remains_concurrent(native_pipeline: MagicMock) -> None:
+    """GPU serialization must not serialize the entire OCR pipeline."""
+    cpu_workers = Barrier(2)
+    native_pipeline.text_rec.side_effect = lambda image: cpu_workers.wait(timeout=3)
+    engine = OcrEngine(Settings())
+
+    def infer() -> list[BoundingBox]:
+        with Image.new("RGB", (64, 64)) as image:
+            return engine.infer_page(RenderedPage(0, image, 64, 64, 1))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [pool.submit(infer) for _ in range(2)]
+        assert [result.result(timeout=5) for result in results] == [[], []]
+
+
+def test_gpu_stages_do_not_share_a_global_lock(native_pipeline: MagicMock) -> None:
+    """Independent detection and classification sessions can execute together."""
+    stages = Barrier(2)
+
+    def native_run(outputs: list[str], inputs: dict[str, object]) -> list[object]:
+        stages.wait(timeout=3)
+        return []
+
+    for stage in (native_pipeline.text_det, native_pipeline.text_cls):
+        stage.infer.session.run.side_effect = native_run
+    engine = create_rapidocr()
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [
+            pool.submit(stage.infer, image)
+            for stage in (engine.text_det, engine.text_cls)
+        ]
+        assert [result.result(timeout=5) for result in results] == [[], []]
+
+
+@pytest.mark.parametrize("stage_name", ["text_det", "text_cls"])
+def test_gpu_failure_releases_the_session_for_the_next_page(
+    native_pipeline: MagicMock, stage_name: str
+) -> None:
+    """Preserve the GPU error and allow subsequent workers to acquire the session."""
+    getattr(native_pipeline, stage_name).infer.session.run.side_effect = [
+        RuntimeError("native GPU failure"),
+        [],
+    ]
+    engine = OcrEngine(Settings())
+    with Image.new("RGB", (64, 64)) as image:
+        page = RenderedPage(0, image, 64, 64, 1)
+        with pytest.raises(GpuInferenceError) as error:
+            engine.infer_page(page)
+        assert error.value.error_message == "native GPU failure"
+        results: list[list[BoundingBox]] = []
+        worker = Thread(
+            target=lambda: results.append(engine.infer_page(page)), daemon=True
+        )
+        worker.start()
+        worker.join(timeout=3)
+        assert not worker.is_alive(), "GPU session remained locked after failure"
+        assert results == [[]]
