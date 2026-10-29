@@ -13,7 +13,9 @@ class HealthCheckFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         """Return False for successful health check probes to prevent log spam."""
         msg = record.getMessage()
-        return not ("200" in msg and ("GET /healthz" in msg or "GET /readyz" in msg))
+        return (
+            "200" not in msg or "GET /healthz" not in msg and "GET /readyz" not in msg
+        )
 
 
 class CorrelationAccessFormatter(AccessFormatter):
