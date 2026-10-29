@@ -132,7 +132,7 @@ def _update_instruction_content(content: str, asset: AssetInfo) -> tuple[str, bo
             f"Could not find ADD instruction for destination: {asset.destination}"
         )
 
-    old_hash, old_url = match.group(1), match.group(2)
+    old_hash, old_url = match[1], match[2]
     if old_hash == asset.digest and old_url == asset.url:
         return content, False
 

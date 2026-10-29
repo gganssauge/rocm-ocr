@@ -79,7 +79,7 @@ def _compute_morph(
         scale_x = box_width / natural_w
         if not (0.5 <= scale_x <= 2.5):
             return None
-        if rot in (90, 270):
+        if rot in {90, 270}:
             return (pt_morph, pymupdf.Matrix(1.0, scale_x))
         return (pt_morph, pymupdf.Matrix(scale_x, 1.0))
     except Exception:

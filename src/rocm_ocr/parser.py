@@ -131,8 +131,7 @@ def iter_document_pages(
     if not file_bytes:
         raise UnsupportedFormatError("Uploaded document content is empty")
 
-    is_pdf = file_bytes.startswith(b"%PDF") or filename.lower().endswith(".pdf")
-    if is_pdf:
+    if file_bytes.startswith(b"%PDF") or filename.lower().endswith(".pdf"):
         try:
             yield from _parse_pdf_pages(file_bytes, ocr_only)
         except DocumentTooLargeError:
