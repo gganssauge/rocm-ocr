@@ -44,7 +44,7 @@ ADD --checksum=sha256:5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02f
 RUN mkdir -p /models /app/lib/rocm && \
     cp src/rocm_ocr/resources/ppocrv6_dict.txt /models/ppocrv6_dict.txt && \
     cp src/rocm_ocr/resources/latin_dict.txt /models/latin_dict.txt && \
-    VENV_MODELS=$(find /app/.venv -type d -name "models" | head -n 1) && \
+    VENV_MODELS=$(find /app/.venv -path "*/rapidocr_onnxruntime/models" -type d | head -n 1) && \
     cp "$VENV_MODELS/ch_PP-OCRv4_det_infer.onnx" /models/ch_PP-OCRv4_det_infer.onnx && \
     cp "$VENV_MODELS/ch_ppocr_mobile_v2.0_cls_infer.onnx" /models/ch_ppocr_mobile_v2.0_cls_infer.onnx && \
     gcc -shared -fPIC -o /app/lib/rocm/libroctracer64.so.4 -Wl,-soname,libroctracer64.so.4 -x c /dev/null && \
