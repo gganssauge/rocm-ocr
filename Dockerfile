@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM ghcr.io/astral-sh/uv:0.13.9 AS uv-bin
+FROM ghcr.io/astral-sh/uv:0.13.10 AS uv-bin
 
 # --- Build Stage ---
 FROM ubuntu:rolling AS builder
